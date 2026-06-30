@@ -303,7 +303,7 @@
     var MEMBERS = (TRIP.members && TRIP.members.length) ? TRIP.members.slice() : ["A","B","C","D"];
     var EXP = TRIP.expense || {webapp_url:"", token:""};
     var OSAKA = ["2026-07-30","2026-07-31"];
-    var CATS = ["식비","교통","입장·관광","회식·술","숙박","기타"];
+    var CATS = ["식비","교통","입장·관광","회식·술","숙박","기타","충전"];
     var LSKEY = "wk_exp_cache_v1";
     function num(v){ return parseFloat(String(v==null?"":v).replace(/[, ]/g,""))||0; }
     function fmt(n){ return Math.round(n).toLocaleString(); }
@@ -443,12 +443,13 @@
     function refreshBtn(){ var b=document.createElement("button"); b.className="etab"; b.textContent="↻ 새로고침"; b.style.margin="0 0 8px"; b.addEventListener("click",function(){ refresh().then(expRender); }); return b; }
     function tabList(){
       ebody.innerHTML=""; ebody.appendChild(refreshBtn());
-      if(!entries.length){ ebody.appendChild(elNote("아직 입력된 경비가 없습니다.")); return; }
-      var tot=entries.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
+      var EX=entries.filter(function(e){return e.cat!=="충전";});
+      if(!EX.length){ ebody.appendChild(elNote("아직 입력된 경비가 없습니다.")); return; }
+      var tot=EX.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
       var head=document.createElement("div"); head.className="elist-head";
-      head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0)+" · "+entries.length+"건 · 1인평균 ₩"+fmt(jKrw(tot)/MEMBERS.length);
+      head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0)+" · "+EX.length+"건 · 1인평균 ₩"+fmt(jKrw(tot)/MEMBERS.length);
       ebody.appendChild(head);
-      var byDate={}; entries.forEach(function(e){ var d=e.date||"?"; (byDate[d]=byDate[d]||[]).push(e); });
+      var byDate={}; EX.forEach(function(e){ var d=e.date||"?"; (byDate[d]=byDate[d]||[]).push(e); });
       Object.keys(byDate).sort().forEach(function(d){
         var list=byDate[d];
         var dsum=list.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
@@ -479,19 +480,20 @@
         });
       });
     }
-    function sumBy(fn){ var m={}; entries.forEach(function(e){ var k=fn(e); if(k==null)return; m[k]=(m[k]||0)+(Number(e.amount)||0); }); return m; }
+    function sumBy(fn){ var m={}; entries.filter(function(e){return e.cat!=="충전";}).forEach(function(e){ var k=fn(e); if(k==null)return; m[k]=(m[k]||0)+(Number(e.amount)||0); }); return m; }
     function block(title,obj){ var d=document.createElement("div"); var t=document.createElement("div"); t.style.fontWeight="700"; t.style.margin="10px 0 4px"; t.textContent=title; d.appendChild(t); var keys=Object.keys(obj); var max=Math.max.apply(null,keys.map(function(k){return obj[k];}).concat([1])); keys.sort(function(a,b){return obj[b]-obj[a];}).forEach(function(k){ var v=obj[k]; var r=document.createElement("div"); r.style.fontSize="12.5px"; r.textContent=k+" : ¥"+fmt(v)+" (≈₩"+fmt(jKrw(v))+")"; var bar=document.createElement("div"); bar.className="bar"; var i=document.createElement("i"); i.style.width=(v/max*100)+"%"; bar.appendChild(i); d.appendChild(r); d.appendChild(bar); }); return d; }
     function tabAgg(){
       ebody.innerHTML=""; ebody.appendChild(refreshBtn());
       if(!entries.length){ ebody.appendChild(elNote("데이터 없음.")); return; }
-      var tot=entries.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
+      var EX=entries.filter(function(e){return e.cat!=="충전";});
+      var tot=EX.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
       var head=document.createElement("div"); head.style.fontWeight="700"; head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0); ebody.appendChild(head);
       ebody.appendChild(block("분류별",sumBy(function(e){return e.cat;})));
       ebody.appendChild(block("일자별",sumBy(function(e){return e.date;})));
-      var paid={}; MEMBERS.forEach(function(m){paid[m]=0;}); entries.forEach(function(e){ if(e.payer!=null) paid[e.payer]=(paid[e.payer]||0)+(Number(e.amount)||0); });
+      var paid={}; MEMBERS.forEach(function(m){paid[m]=0;}); EX.forEach(function(e){ if(e.payer!=null) paid[e.payer]=(paid[e.payer]||0)+(Number(e.amount)||0); });
       ebody.appendChild(block("결제자별(지출)",paid));
-      var days={}; entries.forEach(function(e){ if(e.date) days[e.date]=1; }); var nDays=Math.max(Object.keys(days).length,1); var nMem=MEMBERS.length;
-      var food=0, allow=0; entries.forEach(function(e){ var a=Number(e.amount)||0; if(e.cat==="식비") food+=a; else if(e.cat!=="숙박") allow+=a; });
+      var days={}; EX.forEach(function(e){ if(e.date) days[e.date]=1; }); var nDays=Math.max(Object.keys(days).length,1); var nMem=MEMBERS.length;
+      var food=0, allow=0; EX.forEach(function(e){ var a=Number(e.amount)||0; if(e.cat==="식비") food+=a; else if(e.cat!=="숙박") allow+=a; });
       var foodPP=jUsd(food)/(nDays*nMem), allowPP=jUsd(allow)/(nDays*nMem);
       var bt=document.createElement("div"); bt.style.fontWeight="700"; bt.style.margin="10px 0 4px"; bt.textContent="예산 대비 (1인·일 평균, 추정)"; ebody.appendChild(bt);
       function budLine(lbl,val,bud){ var r=document.createElement("div"); r.style.fontSize="12.5px"; r.textContent=lbl+" $"+val.toFixed(0)+" / 예산 $"+bud+" ("+Math.round(val/bud*100)+"%)"; var bar=document.createElement("div"); bar.className="bar"; var i=document.createElement("i"); i.style.width=Math.min(val/bud*100,100)+"%"; if(val>bud) i.style.background="#c0392b"; bar.appendChild(i); ebody.appendChild(r); ebody.appendChild(bar); }
@@ -502,7 +504,7 @@
       ebody.innerHTML=""; ebody.appendChild(refreshBtn());
       if(!entries.length){ ebody.appendChild(elNote("데이터 없음.")); return; }
       var net={}; MEMBERS.forEach(function(m){net[m]=0;});
-      entries.forEach(function(e){ var a=Number(e.amount)||0; if(e.payer!=null) net[e.payer]=(net[e.payer]||0)+a; var pr=(e.parts&&e.parts.length)?e.parts:MEMBERS; var sh=a/pr.length; pr.forEach(function(m){ net[m]=(net[m]||0)-sh; }); });
+      entries.filter(function(e){return e.cat!=="충전";}).forEach(function(e){ var a=Number(e.amount)||0; if(e.payer!=null) net[e.payer]=(net[e.payer]||0)+a; var pr=(e.parts&&e.parts.length)?e.parts:MEMBERS; var sh=a/pr.length; pr.forEach(function(m){ net[m]=(net[m]||0)-sh; }); });
       var cred=[], debt=[]; Object.keys(net).forEach(function(m){ var w=jKrw(net[m]); if(w>1) cred.push({m:m,v:w}); else if(w<-1) debt.push({m:m,v:-w}); });
       cred.sort(function(a,b){return b.v-a.v;}); debt.sort(function(a,b){return b.v-a.v;});
       var tr=[], ci=0, di=0;
@@ -515,6 +517,79 @@
     loadCache();
   })();
 
+</script>
+<script>
+/* ===== 카드 충전·잔액 (기존 경비 시트 읽기전용) ===== */
+(function(){
+  var WEBAPP=(typeof TRIP!=="undefined"&&TRIP.expense&&TRIP.expense.webapp_url)||"";
+  var TOKEN=(typeof TRIP!=="undefined"&&TRIP.expense&&TRIP.expense.token)||"";
+  var EMO={"식비":"🍜","교통":"🚆","입장·관광":"🏯","회식·술":"🍻","숙박":"🏨","기타":"🧾","충전":"💰"};
+  var rate=0;
+  function fmt(n){ return Math.round(Number(n)||0).toLocaleString(); }
+  function note(b,t){ b.innerHTML='<div class="wk-note" style="font-size:13px">'+t+'</div>'; }
+  function won(j){ return rate?(" ≈₩"+fmt(j*rate)):""; }
+  function sdate(d){ d=String(d||""); var m=d.match(/(\d{4})-(\d{2})-(\d{2})/); if(m) return (+m[2])+"/"+(+m[3]); var t=new Date(d); return isNaN(t.getTime())?d:((t.getMonth()+1)+"/"+t.getDate()); }
+  var jc=0;
+  function jsonp(params){ return new Promise(function(res,rej){ var cb="__bal"+(++jc); var s=document.createElement("script");
+    var to=setTimeout(function(){clean();rej();},15000);
+    function clean(){ try{delete window[cb];}catch(e){window[cb]=undefined;} if(s.parentNode)s.remove(); clearTimeout(to); }
+    window[cb]=function(d){ clean(); res(d); }; s.onerror=function(){ clean(); rej(); };
+    s.src=WEBAPP+"?"+params+"&callback="+cb; document.body.appendChild(s); }); }
+  function getRate(){ try{ fetch("https://api.frankfurter.dev/v1/latest?base=JPY&symbols=KRW").then(function(r){return r.json();}).then(function(d){ if(d&&d.rates&&d.rates.KRW) rate=d.rates.KRW; }).catch(function(){}); }catch(e){} }
+  function load(body){
+    note(body,"불러오는 중…");
+    jsonp("action=list&token="+encodeURIComponent(TOKEN)).then(function(d){
+      if(d&&d.ok&&d.items) render(body,d.items);
+      else note(body,"⚠️ 데이터를 불러오지 못했습니다. (토큰·배포 확인)"); })
+    .catch(function(){ note(body,"⚠️ 시트를 불러오지 못했습니다. 잠시 후 재시도하세요."); });
+  }
+  function render(body, items){
+    var charge=0,spend=0,charges=[],byCat={};
+    items.forEach(function(e){ var c=e.cat||"기타", a=Number(e.amount)||0;
+      if(c==="충전"){ charge+=a; charges.push(e); } else { spend+=a; byCat[c]=(byCat[c]||0)+a; } });
+    var bal=charge-spend, pct=charge>0?Math.round(spend/charge*100):0;
+    body.innerHTML="";
+    var top=document.createElement("div");
+    top.innerHTML='<div style="display:flex;gap:8px;text-align:center;margin:4px 0 8px">'
+      +'<div style="flex:1"><div class="wk-note" style="margin:0">충전</div><div style="font-weight:700">¥'+fmt(charge)+'</div></div>'
+      +'<div style="flex:1"><div class="wk-note" style="margin:0">사용</div><div style="font-weight:700">¥'+fmt(spend)+'</div></div>'
+      +'<div style="flex:1"><div class="wk-note" style="margin:0">잔액</div><div style="font-weight:700;color:'+(bal<0?"#c0392b":"#0f766e")+'">¥'+fmt(bal)+'</div></div></div>'
+      +'<div class="bar"><i style="width:'+Math.min(Math.max(pct,0),100)+'%;'+(pct>100?"background:#c0392b":"")+'"></i></div>'
+      +'<div class="wk-note">'+(charge>0?(pct+'% 사용 · '):'')+'잔액'+(rate?(" ≈₩"+fmt(bal*rate)):"")+'</div>';
+    body.appendChild(top);
+    if(charge===0){ var w=document.createElement("div"); w.className="wk-note"; w.style.color="#c0392b"; w.style.margin="6px 0";
+      w.textContent="아직 충전 기록이 없습니다 → 🧾경비 입력에서 분류 '충전'으로 충전액을 넣어주세요."; body.appendChild(w); }
+    var t1=document.createElement("div"); t1.className="eday-h"; t1.style.cursor="default";
+    t1.innerHTML='<span class="eday-l">💰 충전 내역</span><span class="eday-s">총 ¥'+fmt(charge)+'</span>'; body.appendChild(t1);
+    charges.sort(function(a,b){return (String(a.date)<String(b.date))?1:-1;}).forEach(function(e){
+      var row=document.createElement("div"); row.className="erow eitem"; var L=document.createElement("div"); L.style.flex="1";
+      L.innerHTML='<div class="ei-1"><span class="ei-amt">¥'+fmt(e.amount)+'</span><span class="ei-won">'+won(Number(e.amount)||0)+'</span></div>'
+        +'<div class="wk-note ei-2">'+sdate(e.date)+(e.memo?(" · "+e.memo):"")+'</div>';
+      row.appendChild(L); body.appendChild(row); });
+    var cats=Object.keys(byCat);
+    if(cats.length){
+      var t2=document.createElement("div"); t2.className="eday-h"; t2.style.cursor="default";
+      t2.innerHTML='<span class="eday-l">🧾 사용 (분류별)</span><span class="eday-s">총 ¥'+fmt(spend)+'</span>'; body.appendChild(t2);
+      cats.sort(function(a,b){return byCat[b]-byCat[a];}).forEach(function(c){
+        var row=document.createElement("div"); row.className="erow eitem";
+        row.innerHTML='<div class="ei-1"><span class="ecat" style="background:#7f8c8d">'+(EMO[c]||"🧾")+" "+c+'</span><span class="ei-amt">¥'+fmt(byCat[c])+'</span><span class="ei-won">'+won(byCat[c])+'</span></div>';
+        body.appendChild(row); }); }
+    var u=document.createElement("div"); u.className="wk-note"; u.style.marginTop="10px"; u.textContent="기존 경비 시트 기준 · 분류 '충전'=충전, 그 외=사용 · 수분 캐시"; body.appendChild(u);
+  }
+  function init(){
+    var wrap=document.getElementById("tool-btns"); if(!wrap){ return setTimeout(init,300); }
+    if(document.getElementById("bal-btn")) return;
+    var btn=document.createElement("button"); btn.id="bal-btn"; btn.className="tool-b"; btn.textContent="💰 잔액"; wrap.appendChild(btn);
+    var ov=document.createElement("div"); ov.className="wk-ov";
+    ov.innerHTML='<div class="wk-card"><button class="wk-x">✕</button><h2>💰 카드 충전·잔액</h2><div id="bal-body"></div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener("click",function(e){ if(e.target===ov) ov.style.display="none"; });
+    ov.querySelector(".wk-x").addEventListener("click",function(){ ov.style.display="none"; });
+    var body=ov.querySelector("#bal-body");
+    btn.addEventListener("click",function(){ ov.style.display="block"; getRate(); load(body); });
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
+})();
 </script>
 </body>
 </html>
