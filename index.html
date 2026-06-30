@@ -328,6 +328,12 @@
      +".erow{border-bottom:1px solid #f0f1f3;padding:9px 2px;font-size:13px;display:flex;gap:8px;align-items:flex-start}.erow .rx{margin-left:auto;display:flex;gap:6px}.erow .rx button{border:none;background:#f0f1f3;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:13px}"
      +".wk-note{font-size:11.5px;color:var(--muted);margin:6px 0}"
      +".bar{height:8px;background:#eee;border-radius:4px;overflow:hidden;margin:3px 0 8px}.bar>i{display:block;height:8px;background:#0f766e}"
+     +".elist-head{font-weight:700;margin:2px 0 8px;font-size:13.5px}"
+     +".eday-h{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;background:#f6f8f8;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:11px 0 5px}"
+     +".eday-h .eday-l{font-weight:700;font-size:13.5px}.eday-h .eday-s{font-size:11.5px;color:var(--muted);white-space:nowrap}"
+     +".eitem{padding-left:9px}.eitem .ei-1{display:flex;align-items:center;gap:7px;flex-wrap:wrap}"
+     +".ecat{color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}"
+     +".ei-amt{font-weight:700;font-size:13.5px}.ei-won{font-size:11.5px;color:var(--muted)}.ei-2{margin:3px 0 0}"
      +".wk-cfg{background:#fff3cd;border:1px solid #f0d000;padding:9px;border-radius:8px;font-size:12px;margin-bottom:10px}"
      +".wk-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:11px 16px;border-radius:9px;z-index:3000;font-size:13px;opacity:0;transition:opacity .2s;max-width:80%;text-align:center}.wk-toast.on{opacity:1}";
     var stEl=document.createElement("style"); stEl.textContent=css; document.head.appendChild(stEl);
@@ -367,6 +373,11 @@
     var ebody=exOv.querySelector("#ebody"), etabsEl=exOv.querySelector("#etabs"), excfg=exOv.querySelector("#excfg");
     var TABS=[["add","➕ 입력"],["list","📋 목록"],["agg","📊 집계"],["settle","🤝 정산"]];
     var cur="add", entries=[], editingId=null, lastPayer=null, busy=false;
+    var CAT_EMOJI={"식비":"🍜","교통":"🚆","입장·관광":"🏯","회식·술":"🍻","숙박":"🏨","기타":"🧾"};
+    var CAT_COLOR={"식비":"#e67e22","교통":"#2980b9","입장·관광":"#16a085","회식·술":"#c0392b","숙박":"#8e44ad","기타":"#7f8c8d"};
+    var DOWMAP={}; (TRIP.days||[]).forEach(function(d){ if(d&&d.date) DOWMAP[d.date]=d.dow||""; });
+    var elistCol={};
+    function eFmtDate(d){ var p=String(d||"").split("-"); return p.length===3?(Number(p[1])+"/"+Number(p[2])):(d||"?"); }
     var draft={date:todayISO(),cat:"식비",parts:[],payer:null,memo:"",amount:""};
     function loadCache(){ try{ entries=JSON.parse(localStorage.getItem(LSKEY)||"[]"); }catch(e){ entries=[]; } }
     function saveCache(){ try{ localStorage.setItem(LSKEY,JSON.stringify(entries)); }catch(e){} }
@@ -434,19 +445,38 @@
       ebody.innerHTML=""; ebody.appendChild(refreshBtn());
       if(!entries.length){ ebody.appendChild(elNote("아직 입력된 경비가 없습니다.")); return; }
       var tot=entries.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
-      var head=document.createElement("div"); head.style.fontWeight="700"; head.style.margin="2px 0 6px"; head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0)+" · "+entries.length+"건 · 1인평균 ₩"+fmt(jKrw(tot)/MEMBERS.length);
+      var head=document.createElement("div"); head.className="elist-head";
+      head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0)+" · "+entries.length+"건 · 1인평균 ₩"+fmt(jKrw(tot)/MEMBERS.length);
       ebody.appendChild(head);
-      entries.slice().sort(function(a,b){return a.date<b.date?1:(a.date>b.date?-1:0);}).forEach(function(e){
-        var row=document.createElement("div"); row.className="erow";
-        var L=document.createElement("div");
-        var l1=document.createElement("div"); l1.textContent=(e.date||"")+" · "+(e.cat||"")+" · ¥"+fmt(e.amount)+" (≈₩"+fmt(jKrw(e.amount))+")";
-        var l2=document.createElement("div"); l2.className="wk-note"; l2.style.margin="2px 0 0"; l2.textContent=(e.payer||"?")+" 결제 · 분담 "+(((e.parts&&e.parts.length))||1)+"인"+(e.memo?(" · "+e.memo):"");
-        L.appendChild(l1); L.appendChild(l2); row.appendChild(L);
-        var rx=document.createElement("div"); rx.className="rx";
-        var be=document.createElement("button"); be.textContent="✏️"; be.addEventListener("click",function(){ startEdit(e); });
-        var bd=document.createElement("button"); bd.textContent="🗑"; bd.addEventListener("click",function(){ delEntry(e); });
-        rx.appendChild(be); rx.appendChild(bd); row.appendChild(rx);
-        ebody.appendChild(row);
+      var byDate={}; entries.forEach(function(e){ var d=e.date||"?"; (byDate[d]=byDate[d]||[]).push(e); });
+      Object.keys(byDate).sort().forEach(function(d){
+        var list=byDate[d];
+        var dsum=list.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
+        var col=!!elistCol[d];
+        var dh=document.createElement("div"); dh.className="eday-h";
+        var dl=document.createElement("span"); dl.className="eday-l"; dl.textContent=(col?"▶ ":"▼ ")+eFmtDate(d)+(DOWMAP[d]?(" ("+DOWMAP[d]+")"):"");
+        var ds=document.createElement("span"); ds.className="eday-s"; ds.textContent="소계 ¥"+fmt(dsum)+" ≈₩"+fmt(jKrw(dsum));
+        dh.appendChild(dl); dh.appendChild(ds);
+        dh.addEventListener("click",function(){ elistCol[d]=!elistCol[d]; expRender(); });
+        ebody.appendChild(dh);
+        if(col) return;
+        list.slice().sort(function(a,b){return (Number(b.amount)||0)-(Number(a.amount)||0);}).forEach(function(e){
+          var row=document.createElement("div"); row.className="erow eitem";
+          var L=document.createElement("div"); L.style.flex="1"; L.style.minWidth="0";
+          var l1=document.createElement("div"); l1.className="ei-1";
+          var cat=e.cat||"기타";
+          var badge=document.createElement("span"); badge.className="ecat"; badge.style.background=(CAT_COLOR[cat]||"#7f8c8d"); badge.textContent=(CAT_EMOJI[cat]||"🧾")+" "+cat;
+          var amt=document.createElement("span"); amt.className="ei-amt"; amt.textContent="¥"+fmt(e.amount);
+          var won=document.createElement("span"); won.className="ei-won"; won.textContent="≈₩"+fmt(jKrw(e.amount));
+          l1.appendChild(badge); l1.appendChild(amt); l1.appendChild(won);
+          var l2=document.createElement("div"); l2.className="wk-note ei-2"; l2.textContent=(e.payer||"?")+" 결제 · 분담 "+(((e.parts&&e.parts.length))||1)+"인"+(e.memo?(" · "+e.memo):"");
+          L.appendChild(l1); L.appendChild(l2); row.appendChild(L);
+          var rx=document.createElement("div"); rx.className="rx";
+          var be=document.createElement("button"); be.textContent="✏️"; be.addEventListener("click",function(ev){ ev.stopPropagation(); startEdit(e); });
+          var bd=document.createElement("button"); bd.textContent="🗑"; bd.addEventListener("click",function(ev){ ev.stopPropagation(); delEntry(e); });
+          rx.appendChild(be); rx.appendChild(bd); row.appendChild(rx);
+          ebody.appendChild(row);
+        });
       });
     }
     function sumBy(fn){ var m={}; entries.forEach(function(e){ var k=fn(e); if(k==null)return; m[k]=(m[k]||0)+(Number(e.amount)||0); }); return m; }
