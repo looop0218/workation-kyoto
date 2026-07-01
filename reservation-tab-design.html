@@ -1,0 +1,583 @@
+<title>예약 정보 탭 · 설계안</title>
+<style>
+  :root{
+    --ink:#1b1f2a;          /* near-black, slight blue bias */
+    --ink-2:#3a4051;
+    --muted:#6b7280;
+    --paper:#f7f6f3;        /* warm off-white ground */
+    --card:#ffffff;
+    --line:#e4e3dd;         /* neutral biased warm */
+    --line-2:#d7d6cf;
+    --teal:#0f766e;         /* app's own accent (tool-b) */
+    --teal-ink:#0b5750;
+    --teal-wash:#e7f1ef;
+    /* semantic (state), NOT accent */
+    --red:#b91c1c; --red-wash:#fdeaea;
+    --amber:#a16207; --amber-wash:#fbf3d9;
+    --green:#15803d; --green-wash:#e4f4e8;
+    /* per-type data hues (muted) */
+    --air:#1d4ed8; --air-wash:#e8eefb;
+    --hotel:#7c3aed; --hotel-wash:#f0eafd;
+    --rail:#b45309; --rail-wash:#fbf0e2;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Consolas", "Liberation Mono", monospace;
+    --sans: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html{ -webkit-text-size-adjust:100%; }
+  body{ margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.6; font-size:16px; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:0 20px 96px; }
+
+  /* ---- departure-board header ---- */
+  .board{ background:var(--ink); color:#fff; border-radius:0 0 14px 14px; padding:26px 22px 22px; }
+  .board .eyebrow{ font-family:var(--mono); font-size:11.5px; letter-spacing:.22em; text-transform:uppercase; color:#8b93a7; display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+  .board .dot{ width:7px; height:7px; border-radius:50%; background:var(--teal); display:inline-block; box-shadow:0 0 0 3px rgba(15,118,110,.25); }
+  .board h1{ margin:.4em 0 .15em; font-size:clamp(24px,4.4vw,36px); line-height:1.08; font-weight:800; letter-spacing:-.015em; text-wrap:balance; }
+  .board .lede{ margin:0; color:#c3c9d6; max-width:60ch; font-size:15px; }
+  .flap{ margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:#2c3242; border:1px solid #2c3242; border-radius:9px; overflow:hidden; }
+  .flap div{ background:#222835; padding:9px 12px; }
+  .flap .k{ font-family:var(--mono); font-size:10px; letter-spacing:.16em; color:#818aa0; text-transform:uppercase; }
+  .flap .v{ font-family:var(--mono); font-size:15px; color:#e9ecf3; margin-top:3px; font-variant-numeric:tabular-nums; }
+
+  /* ---- section scaffolding ---- */
+  section{ margin-top:52px; }
+  .sec-h{ display:flex; align-items:baseline; gap:12px; border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:22px; }
+  .sec-h .no{ font-family:var(--mono); font-size:13px; color:var(--teal-ink); font-weight:700; letter-spacing:.05em; }
+  .sec-h h2{ margin:0; font-size:22px; font-weight:800; letter-spacing:-.01em; }
+  .sec-h .tail{ margin-left:auto; font-size:12.5px; color:var(--muted); font-family:var(--mono); }
+  h3{ font-size:16px; margin:30px 0 10px; font-weight:750; letter-spacing:-.005em; }
+  p{ margin:10px 0; color:var(--ink-2); }
+  p.tight{ max-width:70ch; }
+  .lead{ font-size:16.5px; color:var(--ink-2); max-width:72ch; }
+  a{ color:var(--teal-ink); }
+  strong{ color:var(--ink); font-weight:700; }
+  code{ font-family:var(--mono); font-size:.88em; background:#efeee9; padding:1px 5px; border-radius:4px; color:#334; }
+
+  /* ---- mock device frame ---- */
+  .stage{ background:#ecebe6; border:1px solid var(--line-2); border-radius:16px; padding:22px; display:flex; gap:22px; flex-wrap:wrap; justify-content:center; }
+  .phone{ width:340px; max-width:100%; background:var(--paper); border:1px solid var(--line-2); border-radius:22px; box-shadow:0 10px 34px rgba(27,31,42,.16); overflow:hidden; display:flex; flex-direction:column; }
+  .ph-cap{ text-align:center; font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:14px 0 -6px; }
+  .ph-head{ background:var(--ink); color:#fff; padding:11px 14px; display:flex; align-items:center; gap:10px; }
+  .ph-head .bk{ background:#2c3242; border:none; color:#cfd4df; width:28px; height:28px; border-radius:8px; font-size:15px; }
+  .ph-head .ttl{ font-size:14.5px; font-weight:700; }
+  .ph-head .x{ margin-left:auto; background:#2c3242; border:none; color:#cfd4df; width:28px; height:28px; border-radius:8px; font-size:14px; }
+  .ph-body{ padding:12px 12px 16px; overflow:auto; }
+
+  /* filter chips */
+  .chips{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .chip{ font-size:12.5px; font-weight:650; border:1px solid var(--line-2); background:#fff; border-radius:999px; padding:6px 11px; color:var(--ink-2); display:inline-flex; align-items:center; gap:5px; }
+  .chip.on{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .chip .n{ font-family:var(--mono); font-size:10.5px; opacity:.7; }
+
+  /* boarding-pass reservation card */
+  .rcard{ background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:11px; overflow:hidden; position:relative; }
+  .rcard .stripe{ position:absolute; left:0; top:0; bottom:0; width:4px; }
+  .st-air{ background:var(--air);} .st-hotel{ background:var(--hotel);} .st-rail{ background:var(--rail); }
+  .rc-top{ display:flex; align-items:center; gap:8px; padding:10px 12px 8px 15px; }
+  .type-tag{ font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:3px 7px; border-radius:5px; }
+  .tt-air{ background:var(--air-wash); color:var(--air);} .tt-hotel{ background:var(--hotel-wash); color:var(--hotel);} .tt-rail{ background:var(--rail-wash); color:var(--rail); }
+  .rc-when{ margin-left:auto; font-family:var(--mono); font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; text-align:right; }
+  .rc-main{ padding:2px 12px 10px 15px; }
+  .route{ display:flex; align-items:center; gap:9px; font-weight:800; font-size:19px; letter-spacing:-.01em; }
+  .route .code{ font-family:var(--mono); }
+  .route .arw{ color:var(--muted); font-weight:400; font-size:15px; }
+  .route .sub{ font-size:12px; font-weight:600; color:var(--muted); }
+  .rc-name{ font-size:14px; font-weight:700; }
+  .rc-sub{ font-size:12.5px; color:var(--muted); margin-top:1px; }
+  .rc-foot{ display:flex; align-items:center; gap:8px; padding:8px 12px; border-top:1px dashed var(--line-2); background:#fcfcfb; }
+  .conf{ font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.04em; }
+  .conf .lbl{ font-size:9.5px; color:var(--muted); letter-spacing:.14em; display:block; font-weight:600; }
+  .mini{ margin-left:auto; display:flex; gap:6px; }
+  .mini a,.mini span{ font-size:11.5px; font-weight:650; text-decoration:none; border-radius:7px; padding:5px 9px; display:inline-flex; align-items:center; gap:4px; }
+  .m-map{ background:#1a73e8; color:#fff; }
+  .m-doc{ background:var(--teal-wash); color:var(--teal-ink); }
+  .m-cp{ background:#eee; color:#444; }
+
+  .field-line{ display:flex; gap:8px; font-size:12.5px; padding:3px 0; }
+  .field-line .fk{ color:var(--muted); min-width:66px; }
+  .field-line .fv{ color:var(--ink); font-weight:600; }
+  .field-line .fv.mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* expanded detail */
+  .detail{ padding:2px 3px; }
+  .detail .dh{ font-size:17px; font-weight:800; }
+  .detail .drow{ display:flex; gap:10px; padding:8px 2px; border-bottom:1px solid #f0efeb; font-size:13px; align-items:flex-start;}
+  .detail .drow:last-child{ border-bottom:none; }
+  .detail .dk{ min-width:78px; color:var(--muted); font-size:12px; padding-top:1px;}
+  .detail .dv{ font-weight:600; color:var(--ink); }
+  .detail .dv.mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .pax{ display:flex; flex-wrap:wrap; gap:5px; }
+  .pax b{ background:#f1f0ec; border:1px solid var(--line); border-radius:6px; padding:2px 7px; font-family:var(--mono); font-size:11.5px; font-weight:600; }
+  .bigbtn{ display:block; width:100%; text-align:center; background:#1a73e8; color:#fff; text-decoration:none; font-weight:700; font-size:14px; padding:11px; border-radius:9px; margin-top:12px; border:none; }
+  .bigbtn.ghost{ background:var(--teal); }
+
+  /* add/edit form */
+  .frm label.fl{ display:block; font-size:11.5px; color:var(--muted); font-weight:600; margin:11px 0 4px; letter-spacing:.02em; }
+  .frm .inp{ width:100%; font-size:14px; padding:9px 10px; border:1px solid var(--line-2); border-radius:8px; background:#fff; font-family:var(--sans); }
+  .frm .inp.mono{ font-family:var(--mono); }
+  .seg{ display:flex; gap:6px; }
+  .seg .s{ flex:1; text-align:center; border:1px solid var(--line-2); background:#fff; border-radius:8px; padding:8px 0; font-size:12.5px; font-weight:650; color:var(--ink-2); }
+  .seg .s.on{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .two{ display:flex; gap:8px; } .two>div{ flex:1; }
+  .savebtn{ width:100%; background:var(--teal); color:#fff; border:none; border-radius:9px; padding:12px; font-size:15px; font-weight:700; margin-top:16px; }
+  .drop{ border:1.5px dashed var(--line-2); border-radius:9px; padding:14px; text-align:center; font-size:12.5px; color:var(--muted); background:#fcfcfb; }
+  .lockrow{ font-size:11px; color:var(--muted); display:flex; gap:6px; align-items:flex-start; margin-top:7px; line-height:1.45; }
+
+  /* callouts */
+  .note{ border-left:3px solid var(--teal); background:var(--teal-wash); border-radius:0 9px 9px 0; padding:12px 15px; margin:16px 0; font-size:14px; color:var(--teal-ink); }
+  .warn{ border-left:3px solid var(--red); background:var(--red-wash); border-radius:0 9px 9px 0; padding:12px 15px; margin:16px 0; font-size:14px; color:#7c1d1d; }
+  .note strong,.warn strong{ color:inherit; }
+
+  /* tables */
+  .tbl-scroll{ overflow-x:auto; border:1px solid var(--line); border-radius:11px; margin:14px 0; background:var(--card); }
+  table{ border-collapse:collapse; width:100%; font-size:13.5px; min-width:560px; }
+  th,td{ text-align:left; padding:10px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+  thead th{ background:#f0efea; font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-2); font-weight:750; border-bottom:2px solid var(--line-2); }
+  tbody tr:last-child td{ border-bottom:none; }
+  td .mono{ font-family:var(--mono); font-size:12.5px; }
+  td .must{ color:var(--red); font-weight:700; font-size:11px; font-family:var(--mono); }
+  td .opt{ color:var(--muted); font-size:11px; font-family:var(--mono); }
+  .typecell{ font-weight:750; white-space:nowrap; }
+  .t-air{ color:var(--air);} .t-hotel{ color:var(--hotel);} .t-rail{ color:var(--rail);} .t-all{ color:var(--ink); }
+
+  /* trade-off cards */
+  .grid3{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; margin:16px 0; }
+  .opt-card{ border:1px solid var(--line); border-radius:12px; background:var(--card); padding:16px 16px 14px; display:flex; flex-direction:column; }
+  .opt-card.win{ border-color:var(--teal); box-shadow:0 0 0 1px var(--teal); }
+  .opt-card h4{ margin:0 0 3px; font-size:15px; font-weight:800; }
+  .opt-card .verdict{ font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:700; margin-bottom:9px; }
+  .v-win{ color:var(--teal-ink);} .v-no{ color:var(--muted); }
+  .pm{ font-size:12.5px; margin:3px 0; padding-left:19px; position:relative; color:var(--ink-2); }
+  .pm::before{ position:absolute; left:0; top:0; font-family:var(--mono); font-weight:700; }
+  .pm.p::before{ content:"+"; color:var(--green);} .pm.m::before{ content:"−"; color:var(--red); }
+
+  /* flow steps */
+  .flow{ counter-reset:s; display:flex; flex-direction:column; gap:0; margin:14px 0; }
+  .step{ display:flex; gap:14px; padding:13px 0; border-bottom:1px solid var(--line); }
+  .step:last-child{ border-bottom:none; }
+  .step .sn{ counter-increment:s; flex:0 0 auto; width:27px; height:27px; border-radius:50%; background:var(--ink); color:#fff; font-family:var(--mono); font-weight:700; font-size:12.5px; display:flex; align-items:center; justify-content:center; }
+  .step .sn::before{ content:counter(s); }
+  .step .sb b{ font-size:14px; }
+  .step .sb p{ margin:2px 0 0; font-size:13px; }
+
+  /* integration map */
+  .map-flow{ display:flex; flex-wrap:wrap; align-items:stretch; gap:10px; margin:14px 0; }
+  .mf{ flex:1; min-width:150px; border:1px solid var(--line); border-radius:11px; background:var(--card); padding:13px 14px; }
+  .mf .mft{ font-weight:800; font-size:14px; display:flex; align-items:center; gap:7px; }
+  .mf .mfd{ font-size:12px; color:var(--muted); margin-top:5px; }
+  .mf code{ font-size:11px; }
+  .reuse{ display:inline-block; font-family:var(--mono); font-size:10.5px; background:var(--green-wash); color:var(--green); font-weight:700; padding:2px 6px; border-radius:5px; margin-top:8px; }
+  .new{ display:inline-block; font-family:var(--mono); font-size:10.5px; background:var(--amber-wash); color:var(--amber); font-weight:700; padding:2px 6px; border-radius:5px; margin-top:8px; }
+
+  ul.clean{ margin:10px 0; padding-left:0; list-style:none; }
+  ul.clean li{ padding:6px 0 6px 22px; position:relative; font-size:14px; color:var(--ink-2); border-bottom:1px solid #f0efeb; }
+  ul.clean li:last-child{ border-bottom:none; }
+  ul.clean li::before{ content:"›"; position:absolute; left:4px; color:var(--teal); font-weight:700; }
+  ul.clean li b{ color:var(--ink); }
+
+  .kbd{ font-family:var(--mono); font-size:11px; background:#fff; border:1px solid var(--line-2); border-bottom-width:2px; border-radius:5px; padding:1px 6px; }
+  hr.soft{ border:none; border-top:1px solid var(--line); margin:34px 0; }
+  .foot{ margin-top:54px; padding-top:20px; border-top:2px solid var(--ink); font-size:12.5px; color:var(--muted); font-family:var(--mono); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+
+  @media (max-width:560px){
+    .wrap{ padding:0 14px 72px; }
+    .board{ padding:22px 16px 18px; }
+    .phone{ width:100%; }
+  }
+</style>
+
+<header class="board">
+  <div class="eyebrow"><span class="dot"></span> ISOC KYOTO · WORKATION DASHBOARD <span>／</span> DESIGN SPEC v1</div>
+  <h1>예약 정보 관리 탭</h1>
+  <p class="lede">항공·숙소·열차 예약을 현장에서 3초 안에 꺼내 쓰는 조회 중심 탭. 기존 <code style="background:#2c3242;color:#dfe3ec">도구버튼 + 모달</code> 패턴과 경비/영수증 스택 위에 그대로 얹는다.</p>
+  <div class="flap">
+    <div><div class="k">Trip</div><div class="v">07/26 – 07/31</div></div>
+    <div><div class="k">Pax</div><div class="v">4명 (오사카 3)</div></div>
+    <div><div class="k">Segments</div><div class="v">✈2 · 🏨2 · 🚆2+</div></div>
+    <div><div class="k">Stack</div><div class="v">Sheet + Drive</div></div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section id="tldr">
+    <div class="sec-h"><span class="no">00</span><h2>한눈에</h2><span class="tail">decisions</span></div>
+    <p class="lead">네 가지를 결정했다. 아래는 근거와 목업.</p>
+    <ul class="clean">
+      <li><b>담을 것</b> — 타입 무관 공통 5필드(확인번호·일시·상태·문서·지도) + 타입별 핵심(항공 편명·좌석·터미널 / 숙소 체크인아웃·주소 / 열차 편명·호차·좌석). <b>현장에서 급히 찾는 순서</b>로 카드 상단에 배치.</li>
+      <li><b>레이아웃</b> — 새 <b>도구버튼(🎫 예약) + 모달</b> 안의 <b>탑승권형 카드 리스트</b>. 기본 정렬은 시간순(=사실상 타임라인)이되, 일정 탭에는 통합하지 않고 <b>독립 조회 화면</b>으로 분리.</li>
+      <li><b>흐름</b> — 모바일 우선. 기본은 <b>보기 전용</b>, 카드 탭 → 상세, 하단 <kbd class="kbd">＋</kbd>로 추가/수정. 입력 필드는 타입별로 접힌다.</li>
+      <li><b>민감정보</b> — PNR·영문명은 <b>마스킹 표시 + 로컬 저장</b>, 이바우처 PDF는 <b>영수증과 동일하게 비공개 드라이브 업로드 후 링크</b>. 공개 시트에는 평문 저장 안 함.</li>
+    </ul>
+  </section>
+
+  <!-- ============ MOCKUP ============ -->
+  <section id="mock">
+    <div class="sec-h"><span class="no">01</span><h2>화면 목업</h2><span class="tail">340px · mobile-first</span></div>
+    <p class="tight">세 화면: <strong>리스트(조회 기본)</strong> · <strong>상세</strong> · <strong>추가/수정</strong>. 실제 TRIP 데이터의 값(ICN→KIX, Vischio, 하루카)을 넣었고, 민감정보는 마스킹된 표시 형태 그대로다.</p>
+
+    <div class="stage">
+
+      <!-- SCREEN 1: LIST -->
+      <div>
+        <div class="ph-cap">① 리스트 · 조회 기본</div>
+        <div class="phone">
+          <div class="ph-head">
+            <span class="ttl">🎫 예약 정보</span>
+            <button class="x" aria-hidden="true">✕</button>
+          </div>
+          <div class="ph-body">
+            <div class="chips">
+              <span class="chip on">전체 <span class="n">6</span></span>
+              <span class="chip">✈ 항공 <span class="n">2</span></span>
+              <span class="chip">🏨 숙소 <span class="n">2</span></span>
+              <span class="chip">🚆 열차 <span class="n">2</span></span>
+            </div>
+
+            <!-- AIR outbound -->
+            <div class="rcard">
+              <div class="stripe st-air"></div>
+              <div class="rc-top">
+                <span class="type-tag tt-air">✈ AIR</span>
+                <span class="rc-when">07/26 (일)<br>09:05 출발</span>
+              </div>
+              <div class="rc-main">
+                <div class="route"><span class="code">ICN</span><span class="arw">→</span><span class="code">KIX</span> <span class="sub">직항 · 4인</span></div>
+                <div class="rc-sub">대한항공 KE723 · T2 · 2시간 5분</div>
+              </div>
+              <div class="rc-foot">
+                <span class="conf"><span class="lbl">CONF</span>••••7QF2</span>
+                <span class="mini">
+                  <span class="m-doc">🧾 이티켓</span>
+                  <span class="m-cp">복사</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- HOTEL kyoto -->
+            <div class="rcard">
+              <div class="stripe st-hotel"></div>
+              <div class="rc-top">
+                <span class="type-tag tt-hotel">🏨 HOTEL</span>
+                <span class="rc-when">07/26 → 07/30<br>4박</span>
+              </div>
+              <div class="rc-main">
+                <div class="rc-name">Hotel Vischio Kyoto by Granvia</div>
+                <div class="rc-sub">교토역 하치조구치 도보 2분 · 4인 3실</div>
+              </div>
+              <div class="rc-foot">
+                <span class="conf"><span class="lbl">CONF</span>••3391</span>
+                <span class="mini">
+                  <span class="m-map">📍 지도</span>
+                  <span class="m-doc">🧾 바우처</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- RAIL haruka -->
+            <div class="rcard">
+              <div class="stripe st-rail"></div>
+              <div class="rc-top">
+                <span class="type-tag tt-rail">🚆 RAIL</span>
+                <span class="rc-when">07/26 (일)<br>18:30</span>
+              </div>
+              <div class="rc-main">
+                <div class="route" style="font-size:16px"><span class="code">KIX</span><span class="arw">→</span>교토역 <span class="sub">하루카 특급</span></div>
+                <div class="rc-sub">지정석 4매 · 12호차 · 무환승 ~75분</div>
+              </div>
+              <div class="rc-foot">
+                <span class="conf"><span class="lbl">SEAT</span>12号 5A–6B</span>
+                <span class="mini"><span class="m-doc">🧾 QR</span></span>
+              </div>
+            </div>
+
+            <!-- HOTEL osaka collapsed -->
+            <div class="rcard">
+              <div class="stripe st-hotel"></div>
+              <div class="rc-top">
+                <span class="type-tag tt-hotel">🏨 HOTEL</span>
+                <span class="rc-when">07/30 → 07/31<br>1박</span>
+              </div>
+              <div class="rc-main">
+                <div class="rc-name">Swissôtel Nankai Osaka</div>
+                <div class="rc-sub">난바역 직결 · 3인 · Junior Suite ×2</div>
+              </div>
+              <div class="rc-foot">
+                <span class="conf"><span class="lbl">CONF</span>••8820</span>
+                <span class="mini"><span class="m-map">📍 지도</span><span class="m-doc">🧾 바우처</span></span>
+              </div>
+            </div>
+
+            <button class="bigbtn ghost" style="margin-top:6px">＋ 예약 추가</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCREEN 2: DETAIL -->
+      <div>
+        <div class="ph-cap">② 카드 탭 → 상세</div>
+        <div class="phone">
+          <div class="ph-head">
+            <button class="bk" aria-hidden="true">‹</button>
+            <span class="ttl">✈ 항공 · ICN → KIX</span>
+            <button class="x" aria-hidden="true">✕</button>
+          </div>
+          <div class="ph-body">
+            <div class="detail">
+              <div class="rcard" style="margin-bottom:14px">
+                <div class="stripe st-air"></div>
+                <div class="rc-main" style="padding-top:12px">
+                  <div class="route"><span class="code">ICN</span><span class="arw">→</span><span class="code">KIX</span></div>
+                  <div class="rc-sub">인천 T2 → 간사이 T1</div>
+                </div>
+              </div>
+
+              <div class="drow"><span class="dk">편명</span><span class="dv mono">KE723 · 대한항공</span></div>
+              <div class="drow"><span class="dk">출발</span><span class="dv mono">07/26 (일) 09:05 · T2</span></div>
+              <div class="drow"><span class="dk">도착</span><span class="dv mono">07/26 (일) 11:10 · T1</span></div>
+              <div class="drow"><span class="dk">확인번호</span><span class="dv mono">••••7QF2 <span style="color:var(--teal-ink);font-size:11px;font-weight:600">눌러서 보기</span></span></div>
+              <div class="drow"><span class="dk">좌석</span><span class="dv mono">31A · 31B · 31C · 31D</span></div>
+              <div class="drow"><span class="dk">탑승자</span><span class="dv"><span class="pax"><b>G**</b><b>K**</b><b>L**</b><b>P**</b></span></span></div>
+              <div class="drow"><span class="dk">수하물</span><span class="dv">위탁 23kg×1 · 기내 10kg</span></div>
+              <div class="drow"><span class="dk">메모</span><span class="dv" style="font-weight:500;color:var(--ink-2)">입국심사 성수기 60–75분 버퍼. ICOCA&HARUKA 할인권 확인.</span></div>
+
+              <a class="bigbtn" href="#" onclick="return false">🧾 이티켓 PDF 열기 (드라이브)</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCREEN 3: ADD/EDIT -->
+      <div>
+        <div class="ph-cap">③ 추가 / 수정</div>
+        <div class="phone">
+          <div class="ph-head">
+            <button class="bk" aria-hidden="true">‹</button>
+            <span class="ttl">＋ 예약 추가</span>
+            <button class="x" aria-hidden="true">✕</button>
+          </div>
+          <div class="ph-body">
+            <div class="frm">
+              <label class="fl">종류</label>
+              <div class="seg">
+                <span class="s on">✈ 항공</span>
+                <span class="s">🏨 숙소</span>
+                <span class="s">🚆 열차</span>
+              </div>
+
+              <label class="fl">구간 (출발 → 도착)</label>
+              <div class="two">
+                <div><input class="inp mono" value="ICN" aria-label="출발"></div>
+                <div><input class="inp mono" value="KIX" aria-label="도착"></div>
+              </div>
+
+              <label class="fl">편명 / 항공사</label>
+              <input class="inp mono" value="KE723 대한항공">
+
+              <div class="two">
+                <div><label class="fl">출발 일시</label><input class="inp mono" value="07/26 09:05"></div>
+                <div><label class="fl">좌석</label><input class="inp mono" value="31A–D"></div>
+              </div>
+
+              <label class="fl">확인번호 (PNR)</label>
+              <input class="inp mono" value="ABC7QF2" placeholder="예약번호">
+              <div class="lockrow">🔒 <span>이 값은 <b>이 기기에만</b> 저장되고 목록엔 <code>••••7QF2</code>로 표시됩니다.</span></div>
+
+              <label class="fl">이티켓 / 바우처 (PDF·이미지)</label>
+              <div class="drop">📎 파일 선택 — 비공개 드라이브에 저장 후 링크만 공유</div>
+
+              <label class="fl">메모</label>
+              <input class="inp" value="입국심사 버퍼 60–75분">
+
+              <button class="savebtn">저장</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <p class="tight" style="margin-top:16px;color:var(--muted);font-size:13px">위 3화면은 클릭 불가한 정적 목업입니다. 실제 구현은 하나의 <code>.wk-ov &gt; .wk-card</code> 안에서 리스트 ↔ 상세 ↔ 폼을 전환합니다(경비 탭의 <code>cur</code> 상태 전환과 동일 구조).</p>
+  </section>
+
+  <!-- ============ WHAT TO STORE ============ -->
+  <section id="fields">
+    <div class="sec-h"><span class="no">02</span><h2>무엇을 담을까 — 필드 설계</h2><span class="tail">field schema</span></div>
+    <p class="tight">원칙: <strong>출장자가 현장에서 급히 찾는 것</strong>을 카드 상단·볼드로. 카운터·게이트·개찰구 앞 3초 안에 보이는 것 = 확인번호, 일시, 편명/좌석, 주소·지도. 부가정보(요금·수하물·메모)는 상세로 내린다.</p>
+
+    <h3>공통 필드 (모든 타입)</h3>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>필드</th><th>필수</th><th>카드 위치</th><th>비고</th></tr></thead>
+        <tbody>
+          <tr><td><b>type</b> 종류</td><td><span class="must">필수</span></td><td>좌측 색 스트라이프 + 태그</td><td><code>air</code>/<code>hotel</code>/<code>rail</code> — 색·아이콘·필드셋 결정</td></tr>
+          <tr><td><b>title</b> 요약명</td><td><span class="must">필수</span></td><td>본문 볼드</td><td>항공은 구간, 숙소는 호텔명, 열차는 구간</td></tr>
+          <tr><td><b>confirmation</b> 확인번호</td><td><span class="must">필수</span></td><td>하단 좌 <span class="mono">CONF</span></td><td class="mono" style="font-family:var(--mono)">마스킹 표시 · 로컬 원문 · 탭하면 전체+복사</td></tr>
+          <tr><td><b>datetime</b> 일시</td><td><span class="must">필수</span></td><td>우상단</td><td>항공/열차=출발시각, 숙소=체크인→아웃 범위. <b>정렬 키</b></td></tr>
+          <tr><td><b>docUrl</b> 문서(이바우처)</td><td><span class="opt">권장</span></td><td>하단 우 🧾</td><td>비공개 드라이브 링크(영수증과 동일). 없으면 버튼 숨김</td></tr>
+          <tr><td><b>mapUrl / lat,lng</b> 위치</td><td><span class="opt">숙소필수</span></td><td>하단 우 📍</td><td>구글맵 길찾기 딥링크(기존 stop 팝업과 동일)</td></tr>
+          <tr><td><b>memo</b> 메모</td><td><span class="opt">선택</span></td><td>상세만</td><td>버퍼시간·주의(기존 stop.memo 톤)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>타입별 핵심 필드</h3>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>타입</th><th>현장 최우선 (카드 노출)</th><th>상세</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="typecell t-air">✈ 항공</td>
+            <td><b class="mono">편명</b>(KE723) · <b class="mono">구간+터미널</b>(ICN T2→KIX T1) · <b class="mono">좌석</b> · 출발시각</td>
+            <td>도착시각 · 탑승자 영문명(마스킹) · 수하물 · 예약클래스 · 이티켓 PDF</td>
+          </tr>
+          <tr>
+            <td class="typecell t-hotel">🏨 숙소</td>
+            <td><b>호텔명</b> · <b class="mono">체크인/아웃</b> · <b>주소·지도</b> · 박수</td>
+            <td>객실타입·실수 · 투숙객수 · 조식 · 취소정책 · 전화 · 바우처 PDF</td>
+          </tr>
+          <tr>
+            <td class="typecell t-rail">🚆 열차</td>
+            <td><b class="mono">편명/등급</b>(하루카·노조미) · <b class="mono">호차·좌석</b> · <b class="mono">출발홈·시각</b> · 구간</td>
+            <td>도착시각 · 매수 · 좌석종류(지정/자유) · QR·발권코드 · 환승메모</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note"><strong>이미 절반은 데이터에 있다.</strong> TRIP의 stop에는 <code>category</code>(교통/숙소), <code>transport.mode</code>, <code>reservation</code>(권장/예약필수), <code>lat/lng</code>, <code>memo</code>가 있다. 예약 레코드는 이 stop을 <b>확장</b>한 형태로 잡고, 가능하면 <code>stop.id</code>로 느슨히 연결해 일정 항목의 <span class="mono" style="font-family:var(--mono);font-size:12px">🎫</span> 배지에서 해당 예약으로 점프하게 한다(선택 기능).</div>
+  </section>
+
+  <!-- ============ LAYOUT TRADE-OFF ============ -->
+  <section id="layout">
+    <div class="sec-h"><span class="no">03</span><h2>레이아웃 — 세 후보와 선택</h2><span class="tail">trade-offs</span></div>
+    <div class="grid3">
+      <div class="opt-card win">
+        <h4>A. 카드 리스트</h4>
+        <div class="verdict v-win">▶ 채택</div>
+        <div class="pm p">기존 도구버튼+모달에 그대로 안착 — 신규 코드 최소</div>
+        <div class="pm p">탑승권 은유가 조회에 직관적, 타입 필터·복사·문서 버튼 얹기 쉬움</div>
+        <div class="pm p">예약은 6~8건뿐 — 스크롤 짧고 카드가 딱 맞음</div>
+        <div class="pm m">시간축 위 공백(대기)은 안 보임 → <b>시간순 정렬로 보완</b></div>
+      </div>
+      <div class="opt-card">
+        <h4>B. 일정 타임라인</h4>
+        <div class="verdict v-no">보조 채택</div>
+        <div class="pm p">이동/체류를 시간축에서 직관적으로 파악</div>
+        <div class="pm m">예약 6건에 전용 타임라인은 과설계, 렌더 코드 큼</div>
+        <div class="pm m">"확인번호만 급히" 라는 현장 목적과 어긋남(조회 마찰↑)</div>
+        <div class="pm p">→ 카드 <b>기본 정렬을 시간순</b>으로 두어 타임라인 이점만 흡수</div>
+      </div>
+      <div class="opt-card">
+        <h4>C. 일정 탭에 통합</h4>
+        <div class="verdict v-no">미채택</div>
+        <div class="pm p">stop에 이미 <code>reservation</code> 필드 존재 → 배지로 표식 가능</div>
+        <div class="pm m">70개 맛집 등과 섞여 <b>예약만 훑기</b>가 불가능</div>
+        <div class="pm m">일정(지도 중심)과 예약(문서·번호 중심)은 목적이 다름</div>
+        <div class="pm p">→ 통합 대신 <b>일정→예약 점프 배지</b>로 얇게 연결</div>
+      </div>
+    </div>
+    <p class="tight"><strong>결론:</strong> 독립 <b>카드 리스트</b> 모달을 <b>시간순 정렬</b>로 기본 제공(타임라인의 실익 흡수), 타입 칩으로 필터. 일정 탭에는 통합하지 않되 <code>🎫</code> 배지로 얇게 링크. 조회 마찰이 가장 낮은 조합.</p>
+
+    <h3>조회 중심 UX 원칙</h3>
+    <ul class="clean">
+      <li><b>0-탭 도달</b> — 🎫 버튼 한 번 → 시간순 카드. 오늘·다가오는 예약이 위로.</li>
+      <li><b>3초 스캔</b> — 확인번호·시각·편명이 카드 표면에 볼드/모노. 펼치지 않아도 게이트에서 읽힘.</li>
+      <li><b>탭당 하나의 동작</b> — 카드=상세, 📍=길찾기, 🧾=문서, 복사=번호. 오조작 여지 최소.</li>
+      <li><b>오프라인 내성</b> — 번호·시각·좌석은 로컬 캐시로 지도 없이도 보임(기존 <code>localStorage</code> 캐시 재사용). 지도/PDF만 네트워크 필요.</li>
+    </ul>
+  </section>
+
+  <!-- ============ FLOWS ============ -->
+  <section id="flows">
+    <div class="sec-h"><span class="no">04</span><h2>추가 · 수정 · 보기 흐름</h2><span class="tail">mobile-first</span></div>
+    <p class="tight">기본 진입은 <strong>보기(read-only)</strong>. 편집은 명시적 진입. 경비 탭의 <code>add/list</code> 전환과 <code>submitEntry→upload→doSave</code> 시퀀스를 그대로 따른다.</p>
+
+    <h3>보기 (기본)</h3>
+    <div class="flow">
+      <div class="step"><span class="sn"></span><div class="sb"><b>🎫 예약 버튼 탭</b><p>모달 열림 → 시간순 카드 리스트(조회 기본 화면).</p></div></div>
+      <div class="step"><span class="sn"></span><div class="sb"><b>타입 칩으로 좁히기(선택)</b><p>전체 / 항공 / 숙소 / 열차. 상태는 모달 세션 동안만 유지.</p></div></div>
+      <div class="step"><span class="sn"></span><div class="sb"><b>카드 탭 → 상세</b><p>전체 필드 + 문서 열기. 확인번호 탭 시 마스킹 해제 + 클립보드 복사.</p></div></div>
+    </div>
+
+    <h3>추가 / 수정</h3>
+    <div class="flow">
+      <div class="step"><span class="sn"></span><div class="sb"><b>＋ 추가 (또는 상세의 ✎ 수정)</b><p>같은 모달 안에서 폼으로 전환. 수정은 기존 값 프리필(경비의 <code>startEdit</code>와 동일).</p></div></div>
+      <div class="step"><span class="sn"></span><div class="sb"><b>종류 선택 → 필드셋 접힘/펼침</b><p>항공/숙소/열차 세그먼트에 따라 노출 입력만 바뀜. 공통 필드는 항상 표시.</p></div></div>
+      <div class="step"><span class="sn"></span><div class="sb"><b>문서 첨부(선택)</b><p>PDF·이미지 선택 → <code>downscale()</code>(이미지) 또는 원본(PDF) → <code>upload</code> 액션으로 드라이브 저장 → 링크 회수. <b>영수증 업로드와 동일 경로.</b></p></div></div>
+      <div class="step"><span class="sn"></span><div class="sb"><b>저장</b><p>확인번호·영문명 등 민감값은 <b>로컬에만</b>, 비민감 메타는 시트에 <code>add/update</code>. 저장 확인 후 리스트로 복귀 + 토스트.</p></div></div>
+    </div>
+    <div class="note"><strong>모바일 우선 세부</strong> — 입력 최소 44px 터치타깃(기존 <code>.ef input{min-height:44px}</code> 계승), <code>inputmode</code>/<code>type=date</code> 활용, 저장 버튼 하단 고정 폭 100%, 카드 스와이프 없이 탭 위주(오조작 방지).</div>
+  </section>
+
+  <!-- ============ INTEGRATION ============ -->
+  <section id="integ">
+    <div class="sec-h"><span class="no">05</span><h2>기존 도구버튼+모달 패턴과의 통합</h2><span class="tail">reuse map</span></div>
+    <p class="tight">새 코드는 거의 없다. 대부분 경비/영수증 스택의 <strong>검증된 함수를 재사용</strong>한다. 아래는 무엇을 재사용(초록)하고 무엇만 새로(주황) 만드는지.</p>
+
+    <div class="map-flow">
+      <div class="mf">
+        <div class="mft">🎫 도구버튼</div>
+        <div class="mfd"><code>#tool-btns</code>에 <code>.tool-b</code> 버튼 1개 추가. 스코어·환율·경비·잔액 옆.</div>
+        <span class="reuse">재사용: .tool-b · #tool-btns</span>
+      </div>
+      <div class="mf">
+        <div class="mft">🗂 모달 셸</div>
+        <div class="mfd"><code>.wk-ov &gt; .wk-card &gt; .wk-x</code> 그대로. 내부에 리스트/상세/폼 <code>cur</code> 전환.</div>
+        <span class="reuse">재사용: .wk-ov/.wk-card/.wk-x</span>
+      </div>
+      <div class="mf">
+        <div class="mft">☁ 데이터</div>
+        <div class="mfd">Apps Script <code>list/add/update/delete</code> + JSONP. 시트에 <code>reservations</code> 시트/열 추가만.</div>
+        <span class="reuse">재사용: jsonp · postEntry</span>
+      </div>
+      <div class="mf">
+        <div class="mft">📄 문서 업로드</div>
+        <div class="mfd">이바우처 → <code>upload</code> 액션 → DriveApp 비공개 저장 → 링크. <code>receiptAnchor()</code>로 렌더.</div>
+        <span class="reuse">재사용: downscale · upload · receiptAnchor</span>
+      </div>
+    </div>
+
+    <h3>새로 만드는 것 (최소)</h3>
+    <ul class="clean">
+      <li><b>레코드 스키마 + 타입별 필드셋 렌더</b> <span class="new">신규</span> — 카드/상세/폼의 타입 분기. 경비의 <code>tabAdd/tabList</code>에 대응하는 <code>resvList/resvDetail/resvForm</code>.</li>
+      <li><b>마스킹 + 로컬-민감값 계층</b> <span class="new">신규</span> — <code>confirmation</code>·<code>paxNames</code>는 <code>localStorage</code>(<code>wk_resv_secret_v1</code>)에, 시트엔 비민감 메타만. 상세에서 로컬값과 병합.</li>
+      <li><b>PDF 업로드 허용</b> <span class="new">소폭</span> — 기존 <code>downscale</code>는 이미지 전용. PDF는 다운스케일 없이 base64 직송(용량 가드만). Apps Script <code>upload</code> 핸들러는 mimeType 이미 범용.</li>
+      <li><b>일정→예약 점프 배지</b> <span class="new">선택</span> — stop에 매칭 예약 있으면 <code>🎫</code> 배지, 탭 시 예약 모달을 해당 카드로 연다.</li>
+    </ul>
+
+    <div class="note" style="border-color:var(--amber);background:var(--amber-wash);color:#6b4c07">
+      <strong>구현 규모 감각.</strong> 데이터 왕복·업로드·모달·토스트가 전부 존재하므로, 실질 작업은 <b>① 카드/상세/폼 3뷰 렌더</b> + <b>② 민감값 로컬 계층</b> + <b>③ 시트 열 추가</b>. 스택은 이미 프로덕션 검증됨(경비·잔액·영수증).
+    </div>
+  </section>
+
+  <!-- ============ SECURITY ============ -->
+  <section id="sec">
+    <div class="sec-h"><span class="no">06</span><h2>민감정보 — 무엇을 어디에 두나</h2><span class="tail">privacy</span></div>
+    <div class="warn"><strong>전제:</strong> <code>index.html</code>은 GitHub Pages 공개. <code>expense.token</code>이 이미 노출된 <b>사실상 공개 비밀</b> → 시트도 익명 접근 가능. 따라서 <b>시트에 평문 PNR·여권영문명·바우처 PDF를 두면 URL을 아는 누구나 열람</b>한다. 이것이 설계의 핵심 제약.</p></div>
+
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>데이터</th><th>민감도</th><th>저장 위치</th><th>공개 노출</th></tr></thead>
+        <tbody>
+          <tr><td>확인번호(PNR)</td><td style="color:var(--red);font-weight:700">높음</td><td>기기 <code>localStorage</code></td><td>목록엔 <span class="mono" style="font-family:var(--mono)">••••7QF2</span> 마스킹만</td></tr>
+          <tr><td>탑승자 영문명</td><td style="color:var(--red);font-weight:700">높음</td><td>기기 <code>localStorage</code></td><td><span class="mono" style="font-family:var(--mono)">G** K**</span> 이니셜</td></tr>
+          <tr><td>이바우처·이티켓 PDF</td><td style="color:var(--red);font-weight:700">높음</td><td>비공개 드라이브(링크 접근)</td><td>링크만 · 폴더 비공개</td></tr>
+          <tr><td>편명·시각·구간·좌석</td><td style="color:var(--amber);font-weight:700">낮음</td><td>공개 시트 OK</td><td>노출돼도 무해</td></tr>
+          <tr><td>호텔명·주소·박수</td><td style="color:var(--amber);font-weight:700">낮음</td><td>공개 시트 OK</td><td>일정에 이미 공개 중</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>선택지와 권장</h3>
+    <ul class="clean">
+      <li><b>권장 (기본): 로컬-민감값 + 마스킹 + 드라이브 문서.</b> 추가 인증 없이 지금 스택으로 가능. 단, 민감 원문은 <b>입력한 기기에서만</b> 온전히 보임(4명이 각자 자기 예약만 넣거나, 대표 1인이 넣고 필요 시 문서 링크로 공유).</li>
+      <li><b>대안 1: 드라이브 문서로 일원화.</b> 카드엔 마스킹만, 원문 전체는 바우처 PDF를 열어 확인. 로컬 계층 없이도 성립 — 가장 단순.</li>
+      <li><b>대안 2: PIN 게이트.</b> 예약 탭 진입에 4자리 PIN(일행만 공유). 편의는 낮고, 공개 시트 문제는 못 막으므로 <b>민감값은 여전히 시트 밖</b>이어야 함. 과잉일 가능성.</li>
+      <li><b>비권장: 시트 평문 저장.</b> 편하지만 공개 노출. 채택하지 않음.</li>
+    </ul>
+    <p class="tight" style="color:var(--muted);font-size:13px">※ 근본적 격상(비공개 저장소·서버 인증)은 이 앱의 "단일 공개 index.html" 전제를 벗어난다. 현 제약 안의 최선은 <b>민감값을 시트에서 빼고 드라이브+로컬로 분리</b>하는 것.</p>
+  </section>
+
+  <div class="foot">
+    <span>ISoC KYOTO · RESERVATION TAB · DESIGN SPEC v1</span>
+    <span>stack: index.html + Apps Script + Drive</span>
+  </div>
+</div>

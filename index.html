@@ -688,5 +688,198 @@
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
 })();
 </script>
+<script>
+/* ===== 🎫 예약 (bookings 시트: 항공/숙소/열차 · CRUD) ===== */
+(function(){
+  var WEBAPP=(typeof TRIP!=="undefined"&&TRIP.expense&&TRIP.expense.webapp_url)||"";
+  var TOKEN="kyoto2607-r7q9v3";           /* 신토큰 (서버는 구·신 둘 다 허용) */
+  var SHEET="bookings";
+  var LIMIT={title:120,sub:120,detail:200,memo:300};
+  var TYPES=[["flight","✈️","항공"],["hotel","🏨","숙소"],["train","🚆","열차"]];
+  var EMO={flight:"✈️",hotel:"🏨",train:"🚆"};
+  /* type별 라벨만 바뀌는 최소 필드 */
+  var LAB={
+    flight:{title:"편명·항공사",sub:"구간 (예: KIX→GMP)",detail:"좌석·터미널·게이트"},
+    hotel: {title:"숙소명",     sub:"객실·박수 (예: 2박·킹)",detail:"체크인/아웃·조식"},
+    train: {title:"열차·등급",  sub:"구간 (예: 교토→신오사카)",detail:"좌석·호차·플랫폼"}
+  };
+  function esc(s){ return String(s==null?"":s); }
+  function cut(s,n){ s=esc(s); return s.length>n?s.slice(0,n):s; }
+  function configured(){ return !!(WEBAPP && WEBAPP.indexOf("http")===0); }
+  function note(b,t){ b.innerHTML='<div class="wk-note" style="font-size:13px">'+esc(t)+'</div>'; }
+  /* datetime → 정렬키 & 표시 */
+  function dtKey(d){ d=esc(d); return d?d.replace("T"," "):"~"; }
+  function dtLabel(d){ d=esc(d); var m=d.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+    if(!m) return d||"일시 미정"; var s=(+m[2])+"/"+(+m[3]); if(m[4]) s+=" "+m[4]+":"+m[5]; return s; }
+  var jc=0;
+  function jsonp(params){ return new Promise(function(res,rej){ var cb="__bk"+(++jc); var s=document.createElement("script");
+    var to=setTimeout(function(){clean();rej();},15000);
+    function clean(){ try{delete window[cb];}catch(e){window[cb]=undefined;} if(s.parentNode)s.remove(); clearTimeout(to); }
+    window[cb]=function(d){ clean(); res(d); }; s.onerror=function(){ clean(); rej(); };
+    s.src=WEBAPP+"?"+params+"&callback="+cb; document.body.appendChild(s); }); }
+  function postEntry(body){ return fetch(WEBAPP,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(body)}).then(function(r){return r.json();}).catch(function(){return null;}); }
+  /* 안전 앵커: http(s) 화이트리스트 + rel=noopener + textContent (URL을 innerHTML로 넣지 않음) */
+  function safeAnchor(url,label){
+    if(!/^https?:\/\//i.test(esc(url))) return null;
+    var a=document.createElement("a");
+    a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    a.textContent=label; a.style.marginLeft="8px"; a.style.fontSize="12px"; a.style.color="#0f766e"; a.style.whiteSpace="nowrap";
+    a.addEventListener("click",function(ev){ ev.stopPropagation(); });
+    return a;
+  }
+  var items=[], filter="all", busy=false;
+  function load(){
+    note(bkBody,"불러오는 중…");
+    if(!configured()){ note(bkBody,"⚙️ 예약 공유가 아직 연결되지 않았습니다. trip.json의 expense.webapp_url을 채우고 재빌드하세요."); return; }
+    jsonp("action=list&sheet="+SHEET+"&token="+encodeURIComponent(TOKEN)).then(function(d){
+      if(d&&d.ok&&d.items){ items=d.items; renderList(); }
+      else note(bkBody,"⚠️ 데이터를 불러오지 못했습니다. (토큰·배포 확인)"); })
+    .catch(function(){ note(bkBody,"⚠️ 시트를 불러오지 못했습니다. 잠시 후 재시도하세요."); });
+  }
+  function renderList(){
+    bkBody.innerHTML="";
+    /* 타입 필터 칩 */
+    var chips=document.createElement("div"); chips.style.margin="2px 0 10px";
+    function chip(key,label){ var c=document.createElement("span"); c.className="chip"+(filter===key?" on":""); c.textContent=label;
+      c.addEventListener("click",function(){ filter=key; renderList(); }); chips.appendChild(c); }
+    chip("all","전체"); TYPES.forEach(function(t){ chip(t[0],t[1]+" "+t[2]); });
+    bkBody.appendChild(chips);
+    /* 추가 버튼 */
+    var addBtn=document.createElement("button"); addBtn.className="ebtn"; addBtn.style.margin="0 0 12px"; addBtn.textContent="➕ 예약 추가";
+    addBtn.addEventListener("click",function(){ openForm(null); }); bkBody.appendChild(addBtn);
+    /* 시간순 정렬 */
+    var list=items.filter(function(e){ return filter==="all"||e.type===filter; })
+                  .sort(function(a,b){ return dtKey(a.datetime)<dtKey(b.datetime)?-1:1; });
+    if(!list.length){ var w=document.createElement("div"); w.className="wk-note"; w.style.margin="8px 0"; w.textContent="예약이 없습니다 → ➕로 추가하세요."; bkBody.appendChild(w); return; }
+    list.forEach(function(e){
+      var row=document.createElement("div"); row.className="erow eitem"; row.style.cursor="pointer";
+      var L=document.createElement("div"); L.style.flex="1";
+      var l1=document.createElement("div"); l1.className="ei-1";
+      var badge=document.createElement("span"); badge.className="ecat"; badge.style.background=(e.type==="flight"?"#1d4ed8":e.type==="hotel"?"#7c3aed":"#b45309");
+      badge.textContent=(EMO[e.type]||"🎫")+" "+TYPES.reduce(function(a,t){return t[0]===e.type?t[2]:a;},"");
+      var tt=document.createElement("span"); tt.className="ei-amt"; tt.textContent=cut(e.title,LIMIT.title);
+      l1.appendChild(badge); l1.appendChild(tt); L.appendChild(l1);
+      var l2=document.createElement("div"); l2.className="wk-note ei-2";
+      l2.textContent=dtLabel(e.datetime)+(e.sub?(" · "+esc(cut(e.sub,LIMIT.sub))):"");
+      var va=safeAnchor(e.voucherUrl,"🎫 바우처"); if(va) l2.appendChild(va);
+      var ma=safeAnchor(e.mapUrl,"🗺️ 지도"); if(ma) l2.appendChild(ma);
+      L.appendChild(l2);
+      row.appendChild(L);
+      row.addEventListener("click",function(){ openDetail(e); });
+      bkBody.appendChild(row);
+    });
+    var u=document.createElement("div"); u.className="wk-note"; u.style.marginTop="10px"; u.textContent="bookings 시트 기준 · 시간순 · 카드를 눌러 상세/수정"; bkBody.appendChild(u);
+  }
+  function field(label,id,val,type){
+    var w=document.createElement("div"); w.className="ef";
+    var l=document.createElement("label"); l.textContent=label; l.setAttribute("for",id); w.appendChild(l);
+    var i=document.createElement("input"); i.id=id; i.type=type||"text"; i.value=esc(val); w.appendChild(i);
+    return w;
+  }
+  function openDetail(e){
+    bkBody.innerHTML="";
+    var back=document.createElement("button"); back.className="etab"; back.textContent="← 목록"; back.style.marginBottom="10px";
+    back.addEventListener("click",renderList); bkBody.appendChild(back);
+    var h=document.createElement("div"); h.className="eday-h"; h.style.cursor="default";
+    var hl=document.createElement("span"); hl.className="eday-l"; hl.textContent=(EMO[e.type]||"🎫")+" "+cut(e.title,LIMIT.title);
+    var hs=document.createElement("span"); hs.className="eday-s"; hs.textContent=dtLabel(e.datetime);
+    h.appendChild(hl); h.appendChild(hs); bkBody.appendChild(h);
+    function line(k,v){ if(!v) return; var d=document.createElement("div"); d.className="erow eitem";
+      var wrp=document.createElement("div"); wrp.className="ei-1";
+      var kk=document.createElement("span"); kk.className="ei-won"; kk.style.width="64px"; kk.textContent=k;
+      var vv=document.createElement("span"); vv.className="ei-amt"; vv.style.fontWeight="600"; vv.textContent=v;
+      wrp.appendChild(kk); wrp.appendChild(vv); d.appendChild(wrp); bkBody.appendChild(d); }
+    line("구분", TYPES.reduce(function(a,t){return t[0]===e.type?(t[1]+" "+t[2]):a;},""));
+    line("일시", dtLabel(e.datetime));
+    line((LAB[e.type]||LAB.flight).sub, cut(e.sub,LIMIT.sub));
+    line((LAB[e.type]||LAB.flight).detail, cut(e.detail,LIMIT.detail));
+    line("메모", cut(e.memo,LIMIT.memo));
+    var links=document.createElement("div"); links.className="erow eitem";
+    var lw=document.createElement("div"); lw.className="ei-1";
+    var va=safeAnchor(e.voucherUrl,"🎫 바우처"); if(va){ va.style.marginLeft="0"; lw.appendChild(va); }
+    var ma=safeAnchor(e.mapUrl,"🗺️ 지도"); if(ma) lw.appendChild(ma);
+    if(lw.childNodes.length){ links.appendChild(lw); bkBody.appendChild(links); }
+    var rx=document.createElement("div"); rx.style.display="flex"; rx.style.gap="8px"; rx.style.marginTop="14px";
+    var edit=document.createElement("button"); edit.className="ebtn"; edit.style.flex="1"; edit.textContent="✏️ 수정";
+    edit.addEventListener("click",function(){ openForm(e); });
+    var del=document.createElement("button"); del.className="ebtn"; del.style.flex="0 0 auto"; del.style.background="#c0392b"; del.textContent="🗑 삭제";
+    del.addEventListener("click",function(){ delBooking(e); });
+    rx.appendChild(edit); rx.appendChild(del); bkBody.appendChild(rx);
+  }
+  function openForm(e){
+    var editing=!!(e&&e.id);
+    var cur=editing?e.type:"flight";
+    bkBody.innerHTML="";
+    var back=document.createElement("button"); back.className="etab"; back.textContent="← 목록"; back.style.marginBottom="10px";
+    back.addEventListener("click",renderList); bkBody.appendChild(back);
+    var ttl=document.createElement("h2"); ttl.style.fontSize="15px"; ttl.textContent=editing?"✏️ 예약 수정":"➕ 예약 추가"; bkBody.appendChild(ttl);
+    /* type 세그먼트 */
+    var seg=document.createElement("div"); seg.className="etabs"; bkBody.appendChild(seg);
+    var labels={}; /* 라벨 엘리먼트 갱신용 */
+    function relabel(){ var L=LAB[cur]||LAB.flight;
+      labels.title.textContent=L.title; labels.sub.textContent=L.sub; labels.detail.textContent=L.detail; }
+    TYPES.forEach(function(t){ var b=document.createElement("div"); b.className="etab"+(cur===t[0]?" on":""); b.textContent=t[1]+" "+t[2];
+      b.addEventListener("click",function(){ cur=t[0]; Array.prototype.forEach.call(seg.childNodes,function(n){n.className="etab";}); b.className="etab on"; relabel(); }); seg.appendChild(b); });
+    /* 필드 (PNR/여권/영문명 필드 없음) */
+    var initDT=""; if(e&&e.datetime){ var mm=esc(e.datetime).match(/(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/); if(mm){ initDT=mm[1]+(mm[2]?("T"+mm[2]):""); } }
+    var fTitle=field("title",  "bk-title",  e&&e.title,  "text");   labels.title=fTitle.querySelector("label");
+    var fDate =field("날짜",   "bk-date",   initDT?initDT.slice(0,10):"", "date");
+    var fTime =field("시간",   "bk-time",   initDT&&initDT.length>10?initDT.slice(11):"", "time");
+    var fSub  =field("sub",    "bk-sub",    e&&e.sub,    "text");   labels.sub=fSub.querySelector("label");
+    var fDet  =field("detail", "bk-detail", e&&e.detail, "text");   labels.detail=fDet.querySelector("label");
+    var fVou  =field("🎫 바우처 URL (http/https)","bk-voucher", e&&e.voucherUrl,"url");
+    var fMap  =field("🗺️ 지도 URL (http/https)","bk-map",     e&&e.mapUrl,    "url");
+    var fMemo =field("메모",   "bk-memo",   e&&e.memo,   "text");
+    [fTitle,fDate,fTime,fSub,fDet,fVou,fMap,fMemo].forEach(function(x){ bkBody.appendChild(x); });
+    relabel();
+    var save=document.createElement("button"); save.className="ebtn"; save.style.marginTop="8px"; save.textContent=editing?"저장":"추가";
+    save.addEventListener("click",function(){ submitForm(editing,e,cur); }); bkBody.appendChild(save);
+    var warn=document.createElement("div"); warn.className="wk-note"; warn.style.color="#c0392b"; warn.textContent="※ PNR·여권번호·영문 이름은 저장하지 않습니다."; bkBody.appendChild(warn);
+  }
+  function val(id){ var el=document.getElementById(id); return el?el.value:""; }
+  function submitForm(editing,e,cur){
+    if(busy) return;
+    if(!configured()){ note(bkBody,"연동 설정이 필요합니다 (저장 안 됨)"); return; }
+    var title=cut(val("bk-title"),LIMIT.title).trim();
+    if(!title){ alert("제목(title)을 입력하세요"); return; }
+    var date=val("bk-date"), time=val("bk-time");
+    var datetime=date?(time?(date+"T"+time):date):"";
+    var vou=esc(val("bk-voucher")).trim(); if(vou && !/^https?:\/\//i.test(vou)) vou="";
+    var map=esc(val("bk-map")).trim();     if(map && !/^https?:\/\//i.test(map)) map="";
+    var id=editing?e.id:("b"+Date.now()+Math.floor(Math.random()*1e4));
+    var entry={ id:id, type:cur, title:title, datetime:datetime,
+      sub:cut(val("bk-sub"),LIMIT.sub), detail:cut(val("bk-detail"),LIMIT.detail),
+      voucherUrl:vou, mapUrl:map, memo:cut(val("bk-memo"),LIMIT.memo) };
+    busy=true;
+    postEntry({action:editing?"update":"add",token:TOKEN,sheet:SHEET,entry:entry}).then(function(){ return relist(); }).then(function(){
+      busy=false; filter="all"; renderList();
+    }).catch(function(){ busy=false; note(bkBody,"⚠️ 저장 실패 (네트워크)"); });
+  }
+  function relist(){ return jsonp("action=list&sheet="+SHEET+"&token="+encodeURIComponent(TOKEN)).then(function(d){ if(d&&d.ok&&d.items) items=d.items; }).catch(function(){}); }
+  function delBooking(e){
+    if(busy) return;
+    if(!configured()){ note(bkBody,"연동 설정이 필요합니다"); return; }
+    if(!window.confirm("이 예약을 삭제할까요?")) return;
+    busy=true;
+    postEntry({action:"delete",token:TOKEN,sheet:SHEET,id:e.id}).then(function(){ return relist(); }).then(function(){
+      busy=false; renderList();
+    }).catch(function(){ busy=false; note(bkBody,"⚠️ 삭제 실패"); });
+  }
+  var bkBody=null;
+  function init(){
+    var wrap=document.getElementById("tool-btns"); if(!wrap){ return setTimeout(init,300); }
+    if(document.getElementById("bk-btn")) return;
+    var btn=document.createElement("button"); btn.id="bk-btn"; btn.className="tool-b"; btn.textContent="🎫 예약"; wrap.appendChild(btn);
+    var ov=document.createElement("div"); ov.className="wk-ov";
+    ov.innerHTML='<div class="wk-card"><button class="wk-x">✕</button><h2>🎫 예약</h2><div id="bk-body"></div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener("click",function(e){ if(e.target===ov) ov.style.display="none"; });
+    ov.querySelector(".wk-x").addEventListener("click",function(){ ov.style.display="none"; });
+    bkBody=ov.querySelector("#bk-body");
+    btn.addEventListener("click",function(){ filter="all"; ov.style.display="block"; load(); });
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
+})();
+</script>
 </body>
 </html>
