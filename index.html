@@ -613,6 +613,13 @@
     window[cb]=function(d){ clean(); res(d); }; s.onerror=function(){ clean(); rej(); };
     s.src=WEBAPP+"?"+params+"&callback="+cb; document.body.appendChild(s); }); }
   function getRate(){ try{ fetch("https://api.frankfurter.dev/v1/latest?base=JPY&symbols=KRW").then(function(r){return r.json();}).then(function(d){ if(d&&d.rates&&d.rates.KRW) rate=d.rates.KRW; }).catch(function(){}); }catch(e){} }
+  function delCharge(id, body){
+    if(!id) return;
+    if(!window.confirm("이 충전 기록을 삭제할까요?")) return;
+    fetch(WEBAPP,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"delete",token:TOKEN,id:id})})
+      .then(function(r){return r.json();}).catch(function(){return null;})
+      .then(function(){ load(body); });
+  }
   function load(body){
     note(body,"불러오는 중…");
     jsonp("action=list&token="+encodeURIComponent(TOKEN)).then(function(d){
@@ -650,7 +657,12 @@
       L.innerHTML='<div class="ei-1"><span class="ei-amt">¥'+fmt(e.amount)+'</span><span class="ei-won">'+won(Number(e.amount)||0)+'</span></div>';
       var l2=document.createElement("div"); l2.className="wk-note ei-2"; l2.textContent=sdate(e.date)+(e.memo?(" · "+e.memo):""); L.appendChild(l2);
       var ra=receiptAnchor(e.receipt); if(ra) l2.appendChild(ra);
-      row.appendChild(L); body.appendChild(row); });
+      row.appendChild(L);
+      var rx=document.createElement("div"); rx.className="rx";
+      var bd=document.createElement("button"); bd.textContent="🗑"; bd.title="충전 삭제";
+      bd.addEventListener("click",function(){ delCharge(e.id, body); });
+      rx.appendChild(bd); row.appendChild(rx);
+      body.appendChild(row); });
     var cats=Object.keys(byCat);
     if(cats.length){
       var t2=document.createElement("div"); t2.className="eday-h"; t2.style.cursor="default";
