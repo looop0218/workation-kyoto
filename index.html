@@ -404,7 +404,7 @@
       h+='<div class="ef"><label>참여자 (분담 인원)</label><div>'+MEMBERS.map(function(m){return '<span class="chip'+(draft.parts.indexOf(m)>=0?" on":"")+'" data-p="'+m+'">'+m+'</span>';}).join("")+'</div></div>';
       h+='<div class="ef"><label>메모 (민감정보 금지)</label><input id="e-memo" type="text" maxlength="200" placeholder="예: 도톤보리 저녁"></div>';
       h+='<div class="ef"><label>영수증 (선택 · 이미지)</label>'
-       +'<input id="e-rc-file" type="file" accept="image/*" capture="environment" style="display:none">'
+       +'<input id="e-rc-file" type="file" accept="image/*" style="display:none">'
        +'<button type="button" class="etab" id="e-rc-pick" style="width:auto">🧾 사진 첨부/촬영</button>'
        +'<span class="wk-note" id="e-rc-stat" style="margin-left:8px"></span></div>';
       h+='<button class="ebtn" id="e-save">'+(editingId?"수정 저장":"저장")+'</button>';
