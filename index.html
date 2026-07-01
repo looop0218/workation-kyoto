@@ -378,7 +378,7 @@
     var DOWMAP={}; (TRIP.days||[]).forEach(function(d){ if(d&&d.date) DOWMAP[d.date]=d.dow||""; });
     var elistCol={};
     function eFmtDate(d){ var p=String(d||"").split("-"); return p.length===3?(Number(p[1])+"/"+Number(p[2])):(d||"?"); }
-    var draft={date:todayISO(),cat:"식비",parts:[],payer:null,memo:"",amount:""};
+    var draft={date:todayISO(),cat:"식비",parts:[],payer:null,memo:"",amount:"",receipt:"",rcFile:null};
     function loadCache(){ try{ entries=JSON.parse(localStorage.getItem(LSKEY)||"[]"); }catch(e){ entries=[]; } }
     function saveCache(){ try{ localStorage.setItem(LSKEY,JSON.stringify(entries)); }catch(e){} }
     function defParts(d){ return OSAKA.indexOf(d)>=0 ? MEMBERS.slice(0,3) : MEMBERS.slice(); }
@@ -403,6 +403,10 @@
       h+='<div class="ef"><label>결제자</label><select id="e-payer">'+MEMBERS.map(function(m){return '<option>'+m+'</option>';}).join("")+'</select></div>';
       h+='<div class="ef"><label>참여자 (분담 인원)</label><div>'+MEMBERS.map(function(m){return '<span class="chip'+(draft.parts.indexOf(m)>=0?" on":"")+'" data-p="'+m+'">'+m+'</span>';}).join("")+'</div></div>';
       h+='<div class="ef"><label>메모 (민감정보 금지)</label><input id="e-memo" type="text" maxlength="200" placeholder="예: 도톤보리 저녁"></div>';
+      h+='<div class="ef"><label>영수증 (선택 · 이미지)</label>'
+       +'<input id="e-rc-file" type="file" accept="image/*" capture="environment" style="display:none">'
+       +'<button type="button" class="etab" id="e-rc-pick" style="width:auto">🧾 사진 첨부/촬영</button>'
+       +'<span class="wk-note" id="e-rc-stat" style="margin-left:8px"></span></div>';
       h+='<button class="ebtn" id="e-save">'+(editingId?"수정 저장":"저장")+'</button>';
       ebody.innerHTML=h;
       var dE=ebody.querySelector("#e-date"); dE.value=draft.date;
@@ -418,26 +422,98 @@
       dE.addEventListener("change",function(){ draft.date=dE.value; draft.parts=defParts(draft.date); expRender(); });
       ebody.querySelectorAll("[data-c]").forEach(function(el){ el.addEventListener("click",function(){ draft.cat=el.getAttribute("data-c"); expRender(); }); });
       ebody.querySelectorAll("[data-p]").forEach(function(el){ el.addEventListener("click",function(){ var m=el.getAttribute("data-p"); var i=draft.parts.indexOf(m); if(i>=0) draft.parts.splice(i,1); else draft.parts.push(m); el.classList.toggle("on"); }); });
+      (function(){
+        var fileE=ebody.querySelector("#e-rc-file"), pickE=ebody.querySelector("#e-rc-pick"), statE=ebody.querySelector("#e-rc-stat");
+        function paint(){
+          if(draft.receipt){ statE.textContent="🧾 첨부됨"; statE.style.color="#0f766e"; pickE.textContent="🧾 사진 교체"; }
+          else if(draft.rcFile){ statE.textContent="🧾 "+draft.rcFile.name.slice(0,24)+" (저장 시 업로드)"; statE.style.color=""; pickE.textContent="🧾 사진 변경"; }
+          else { statE.textContent=""; pickE.textContent="🧾 사진 첨부/촬영"; }
+        }
+        paint();
+        pickE.addEventListener("click",function(){ fileE.click(); });
+        fileE.addEventListener("change",function(){
+          var f=fileE.files&&fileE.files[0]; if(!f) return;
+          if(!/^image\//.test(f.type||"")){ toast("이미지 파일만 첨부할 수 있습니다"); fileE.value=""; return; }
+          if(f.size>12*1024*1024){ toast("파일이 너무 큽니다 (12MB 이하)"); fileE.value=""; return; }
+          draft.rcFile=f; draft.receipt=""; paint();
+        });
+      })();
       ebody.querySelector("#e-save").addEventListener("click",submitEntry);
     }
-    function resetDraft(){ draft={date:todayISO(),cat:"식비",parts:[],payer:draft.payer,memo:"",amount:""}; }
+    function _b64bytes(b64){ try{ return atob(b64).length; }catch(e){ return b64.length*3/4; } }
+    function downscale(file, cat, id){
+      return new Promise(function(res,rej){
+        var fr=new FileReader();
+        fr.onerror=function(){ rej(new Error("read")); };
+        fr.onload=function(){
+          var img=new Image();
+          img.onerror=function(){ rej(new Error("decode")); };
+          img.onload=function(){
+            var w=img.naturalWidth||img.width, hh=img.naturalHeight||img.height;
+            if(!w||!hh){ rej(new Error("decode")); return; }
+            var mx=1600, sc=Math.min(1, mx/Math.max(w,hh)); var cw=Math.max(1,Math.round(w*sc)), ch=Math.max(1,Math.round(hh*sc));
+            var cv=document.createElement("canvas"); cv.width=cw; cv.height=ch;
+            var ctx=cv.getContext("2d"); if(!ctx){ rej(new Error("canvas")); return; }
+            ctx.drawImage(img,0,0,cw,ch);
+            var url, b64, q=0.82;
+            try{ url=cv.toDataURL("image/jpeg",q); }catch(e){ rej(new Error("canvas")); return; }
+            b64=url.split(",")[1]||"";
+            if(_b64bytes(b64) > 8*1024*1024){ q=0.7; try{ url=cv.toDataURL("image/jpeg",q); b64=url.split(",")[1]||""; }catch(e2){} }
+            if(_b64bytes(b64) > 8*1024*1024){ rej(new Error("toolarge")); return; }
+            var fn=String((draft.date||"")+"_"+(cat||"")+"_"+String(id).slice(-4)).replace(/[^\w.\-가-힣]/g,"_")+".jpg";
+            res({dataBase64:b64, mimeType:"image/jpeg", filename:fn});
+          };
+          img.src=fr.result;
+        };
+        fr.readAsDataURL(file);
+      });
+    }
+    function receiptAnchor(url){
+      if(!/^https:\/\/(drive|docs)\.google\.com\//.test(String(url||""))) return null;
+      var a=document.createElement("a");
+      a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+      a.textContent="🧾 영수증"; a.style.marginLeft="6px"; a.style.fontSize="12px"; a.style.color="#0f766e";
+      a.addEventListener("click",function(ev){ ev.stopPropagation(); });
+      return a;
+    }
+    function resetDraft(){ draft={date:todayISO(),cat:"식비",parts:[],payer:draft.payer,memo:"",amount:"",receipt:"",rcFile:null}; }
     function submitEntry(){
       if(busy) return;
       var amt=num(draft.amount);
       if(!amt){ toast("금액을 입력하세요"); return; }
       if(!draft.parts.length){ toast("참여자를 선택하세요"); return; }
       if(!configured()){ toast("연동 설정이 필요합니다 (저장 안 됨)"); return; }
-      var entry={id:editingId||("e"+Date.now()+Math.floor(Math.random()*1e4)),date:draft.date,cat:draft.cat,amount:amt,payer:draft.payer,parts:draft.parts.slice(),memo:(draft.memo||"").slice(0,200),clientId:"c"+Date.now()};
+      var id=editingId||("e"+Date.now()+Math.floor(Math.random()*1e4));
       var action=editingId?"update":"add";
-      busy=true; var btn=ebody.querySelector("#e-save"); if(btn){btn.disabled=true; btn.textContent="저장 중…";}
-      postEntry({action:action,token:EXP.token,entry:entry}).then(function(){ return refresh(); }).then(function(){
-        busy=false;
-        var ok=entries.some(function(x){return String(x.id)===String(entry.id);});
-        if(ok){ toast(editingId?"수정됨":"저장됨"); lastPayer=entry.payer; editingId=null; resetDraft(); cur="list"; expRender(); }
-        else { toast("저장 확인 안 됨 — 잠시 후 새로고침"); if(btn){btn.disabled=false; btn.textContent="저장";} }
-      }).catch(function(){ busy=false; toast("저장 실패(네트워크)"); if(btn){btn.disabled=false; btn.textContent="저장";} });
+      var btn=ebody.querySelector("#e-save");
+      busy=true; if(btn){ btn.disabled=true; btn.textContent="저장 중…"; }
+      function doSave(receiptUrl){
+        var entry={id:id,date:draft.date,cat:draft.cat,amount:amt,payer:draft.payer,parts:draft.parts.slice(),memo:(draft.memo||"").slice(0,200),receipt:receiptUrl||"",clientId:"c"+Date.now()};
+        return postEntry({action:action,token:EXP.token,entry:entry}).then(function(){ return refresh(); }).then(function(){
+          busy=false;
+          var ok=entries.some(function(x){return String(x.id)===String(entry.id);});
+          if(ok){ toast(editingId?"수정됨":"저장됨"); lastPayer=entry.payer; editingId=null; resetDraft(); cur="list"; expRender(); }
+          else { toast("저장 확인 안 됨 — 잠시 후 새로고침"); if(btn){ btn.disabled=false; btn.textContent="저장"; } }
+        }).catch(function(){ busy=false; toast("저장 실패(네트워크)"); if(btn){ btn.disabled=false; btn.textContent="저장"; } });
+      }
+      if(draft.rcFile && !draft.receipt){
+        if(btn) btn.textContent="영수증 업로드 중…";
+        downscale(draft.rcFile, draft.cat, id).then(function(p){
+          return postEntry({action:"upload",token:EXP.token,id:id,filename:p.filename,mimeType:p.mimeType,dataBase64:p.dataBase64});
+        }).then(function(r){
+          if(r && r.ok && r.url){ draft.receipt=r.url; draft.rcFile=null; return doSave(r.url); }
+          toast("영수증 업로드 실패 — 항목만 저장합니다"); return doSave("");
+        }).catch(function(err){
+          var m=(err&&err.message)||"";
+          toast(m==="toolarge" ? "이미지가 너무 큽니다 — 항목만 저장합니다"
+              : (m==="decode" ? "이 이미지는 첨부 불가 — 항목만 저장합니다" : "영수증 처리 실패 — 항목만 저장합니다"));
+          return doSave("");
+        });
+      } else {
+        doSave(draft.receipt||"");
+      }
     }
-    function startEdit(e){ editingId=e.id; draft={date:e.date,cat:e.cat,parts:(e.parts||[]).slice(),payer:e.payer,memo:e.memo||"",amount:String(e.amount)}; cur="add"; expRender(); }
+    function startEdit(e){ editingId=e.id; draft={date:e.date,cat:e.cat,parts:(e.parts||[]).slice(),payer:e.payer,memo:e.memo||"",amount:String(e.amount),receipt:e.receipt||"",rcFile:null}; cur="add"; expRender(); }
     function delEntry(e){ if(!configured()){toast("연동 설정 필요");return;} if(!confirm("삭제할까요?")) return; busy=true; postEntry({action:"delete",token:EXP.token,id:e.id}).then(function(){return refresh();}).then(function(){ busy=false; toast("삭제됨"); expRender(); }).catch(function(){ busy=false; toast("삭제 실패"); }); }
     function elNote(txt){ var d=document.createElement("div"); d.className="wk-note"; d.textContent=txt; return d; }
     function refreshBtn(){ var b=document.createElement("button"); b.className="etab"; b.textContent="↻ 새로고침"; b.style.margin="0 0 8px"; b.addEventListener("click",function(){ refresh().then(expRender); }); return b; }
@@ -471,6 +547,7 @@
           var won=document.createElement("span"); won.className="ei-won"; won.textContent="≈₩"+fmt(jKrw(e.amount));
           l1.appendChild(badge); l1.appendChild(amt); l1.appendChild(won);
           var l2=document.createElement("div"); l2.className="wk-note ei-2"; l2.textContent=(e.payer||"?")+" 결제 · 분담 "+(((e.parts&&e.parts.length))||1)+"인"+(e.memo?(" · "+e.memo):"");
+          var ra=receiptAnchor(e.receipt); if(ra) l2.appendChild(ra);
           L.appendChild(l1); L.appendChild(l2); row.appendChild(L);
           var rx=document.createElement("div"); rx.className="rx";
           var be=document.createElement("button"); be.textContent="✏️"; be.addEventListener("click",function(ev){ ev.stopPropagation(); startEdit(e); });
@@ -543,6 +620,13 @@
       else note(body,"⚠️ 데이터를 불러오지 못했습니다. (토큰·배포 확인)"); })
     .catch(function(){ note(body,"⚠️ 시트를 불러오지 못했습니다. 잠시 후 재시도하세요."); });
   }
+  function receiptAnchor(url){
+    if(!/^https:\/\/(drive|docs)\.google\.com\//.test(String(url||""))) return null;
+    var a=document.createElement("a");
+    a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+    a.textContent="🧾 영수증"; a.style.marginLeft="6px"; a.style.fontSize="12px"; a.style.color="#0f766e";
+    return a;
+  }
   function render(body, items){
     var charge=0,spend=0,charges=[],byCat={};
     items.forEach(function(e){ var c=e.cat||"기타", a=Number(e.amount)||0;
@@ -563,8 +647,9 @@
     t1.innerHTML='<span class="eday-l">💰 충전 내역</span><span class="eday-s">총 ¥'+fmt(charge)+'</span>'; body.appendChild(t1);
     charges.sort(function(a,b){return (String(a.date)<String(b.date))?1:-1;}).forEach(function(e){
       var row=document.createElement("div"); row.className="erow eitem"; var L=document.createElement("div"); L.style.flex="1";
-      L.innerHTML='<div class="ei-1"><span class="ei-amt">¥'+fmt(e.amount)+'</span><span class="ei-won">'+won(Number(e.amount)||0)+'</span></div>'
-        +'<div class="wk-note ei-2">'+sdate(e.date)+(e.memo?(" · "+e.memo):"")+'</div>';
+      L.innerHTML='<div class="ei-1"><span class="ei-amt">¥'+fmt(e.amount)+'</span><span class="ei-won">'+won(Number(e.amount)||0)+'</span></div>';
+      var l2=document.createElement("div"); l2.className="wk-note ei-2"; l2.textContent=sdate(e.date)+(e.memo?(" · "+e.memo):""); L.appendChild(l2);
+      var ra=receiptAnchor(e.receipt); if(ra) l2.appendChild(ra);
       row.appendChild(L); body.appendChild(row); });
     var cats=Object.keys(byCat);
     if(cats.length){
