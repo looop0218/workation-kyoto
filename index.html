@@ -708,9 +708,10 @@
   function configured(){ return !!(WEBAPP && WEBAPP.indexOf("http")===0); }
   function note(b,t){ b.innerHTML='<div class="wk-note" style="font-size:13px">'+esc(t)+'</div>'; }
   /* datetime → 정렬키 & 표시 */
-  function dtKey(d){ d=esc(d); return d?d.replace("T"," "):"~"; }
-  function dtLabel(d){ d=esc(d); var m=d.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
-    if(!m) return d||"일시 미정"; var s=(+m[2])+"/"+(+m[3]); if(m[4]) s+=" "+m[4]+":"+m[5]; return s; }
+  function _z(n){ return (n<10?"0":"")+n; }
+  function _pdt(d){ d=esc(d); if(!d) return null; var m=d.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/); if(m) return {y:+m[1],mo:+m[2],da:+m[3],hh:m[4]!=null?+m[4]:null,mi:m[5]!=null?+m[5]:null}; var t=new Date(d); if(!isNaN(t.getTime())) return {y:t.getFullYear(),mo:t.getMonth()+1,da:t.getDate(),hh:t.getHours(),mi:t.getMinutes()}; return null; }
+  function dtKey(d){ var p=_pdt(d); if(!p) return "~"; return p.y+"-"+_z(p.mo)+"-"+_z(p.da)+" "+_z(p.hh||0)+":"+_z(p.mi||0); }
+  function dtLabel(d){ var p=_pdt(d); if(!p) return esc(d)||"일시 미정"; var s=p.mo+"/"+p.da; if(p.hh!=null && !(p.hh===0&&p.mi===0)) s+=" "+_z(p.hh)+":"+_z(p.mi); return s; }
   var jc=0;
   function jsonp(params){ return new Promise(function(res,rej){ var cb="__bk"+(++jc); var s=document.createElement("script");
     var to=setTimeout(function(){clean();rej();},15000);
