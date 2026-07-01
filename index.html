@@ -728,6 +728,64 @@
     a.addEventListener("click",function(ev){ ev.stopPropagation(); });
     return a;
   }
+  /* ===== 첨부 파일(항공권·바우처) helpers ===== */
+  function parseAtts(s){ var a; try{ a=JSON.parse(String(s||"[]")); }catch(e){ a=[]; } if(!(a instanceof Array)) a=[]; return a.filter(function(x){ return x&&x.fileId; }); }
+  function attKindEmoji(mime){ return /pdf/i.test(String(mime||""))?"📄":"🖼"; }
+  function attKindLabel(mime){ return /pdf/i.test(String(mime||""))?"문서(PDF)":"이미지"; }
+  function attUrl(fileId){ return "https://drive.google.com/file/d/"+encodeURIComponent(String(fileId))+"/view"; }
+  function attRow(text, onRemove){
+    var r=document.createElement("div"); r.style.cssText="display:flex;align-items:center;gap:8px;padding:6px 8px;margin:4px 0;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;font-size:13px";
+    var t=document.createElement("span"); t.style.cssText="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"; t.textContent=text; r.appendChild(t);
+    var x=document.createElement("button"); x.type="button"; x.textContent="✕"; x.style.cssText="border:none;background:none;color:#c0392b;cursor:pointer;font-size:15px;line-height:1"; x.addEventListener("click",onRemove); r.appendChild(x);
+    return r;
+  }
+  function bkToast(msg){
+    var t=document.createElement("div"); t.textContent=msg;
+    t.style.cssText="position:fixed;left:50%;bottom:42px;transform:translateX(-50%);background:#111827;color:#fff;padding:9px 15px;border-radius:9px;font-size:13px;z-index:99999;opacity:.96;max-width:82%;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.25)";
+    document.body.appendChild(t); setTimeout(function(){ if(t.parentNode) t.remove(); },2800);
+  }
+  function _b64len(b64){ try{ return atob(b64).length; }catch(e){ return b64.length*3/4; } }
+  function downscaleImg(file){
+    return new Promise(function(res,rej){
+      var fr=new FileReader(); fr.onerror=function(){ rej(new Error("read")); };
+      fr.onload=function(){ var img=new Image(); img.onerror=function(){ rej(new Error("decode")); };
+        img.onload=function(){
+          var w=img.naturalWidth||img.width, hh=img.naturalHeight||img.height; if(!w||!hh){ rej(new Error("decode")); return; }
+          var mx=1800, sc=Math.min(1,mx/Math.max(w,hh)); var cw=Math.max(1,Math.round(w*sc)), ch=Math.max(1,Math.round(hh*sc));
+          var cv=document.createElement("canvas"); cv.width=cw; cv.height=ch; var ctx=cv.getContext("2d"); if(!ctx){ rej(new Error("canvas")); return; }
+          ctx.drawImage(img,0,0,cw,ch); var url,b64,q=0.85;
+          try{ url=cv.toDataURL("image/jpeg",q); }catch(e){ rej(new Error("canvas")); return; }
+          b64=url.split(",")[1]||"";
+          if(_b64len(b64)>8*1024*1024){ q=0.72; try{ url=cv.toDataURL("image/jpeg",q); b64=url.split(",")[1]||""; }catch(e2){} }
+          res({dataBase64:b64, mimeType:"image/jpeg"});
+        };
+        img.src=fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  function readFile(file){
+    if(/^image\//.test(file.type||"")) return downscaleImg(file);
+    return new Promise(function(res,rej){
+      var fr=new FileReader(); fr.onerror=function(){ rej(new Error("read")); };
+      fr.onload=function(){ var b64=String(fr.result).split(",")[1]||""; res({dataBase64:b64, mimeType:"application/pdf"}); };
+      fr.readAsDataURL(file);
+    });
+  }
+  function uploadOne(id,f){
+    return readFile(f).then(function(p){
+      return postEntry({action:"uploadDoc",token:TOKEN,sheet:SHEET,id:id,mimeType:p.mimeType,dataBase64:p.dataBase64}).then(function(r){
+        if(r&&r.ok&&r.fileId) return {fileId:r.fileId, mime:r.mime||p.mimeType, size:r.size||0};
+        return null;
+      });
+    }).catch(function(){ return null; });
+  }
+  function runSeq(jobs, onProg){
+    var out=[], i=0;
+    function next(){ if(i>=jobs.length) return Promise.resolve(out); if(onProg) onProg(i+1, jobs.length); return jobs[i]().then(function(r){ out.push(r); i++; return next(); }); }
+    return next();
+  }
+  var curExisting=[], curPending=[];
   var items=[], filter="all", busy=false;
   function load(){
     note(bkBody,"불러오는 중…");
@@ -764,6 +822,7 @@
       l2.textContent=dtLabel(e.datetime)+(e.sub?(" · "+esc(cut(e.sub,LIMIT.sub))):"");
       var va=safeAnchor(e.voucherUrl,"🎫 바우처"); if(va) l2.appendChild(va);
       var ma=safeAnchor(e.mapUrl,"🗺️ 지도"); if(ma) l2.appendChild(ma);
+      var _ac=parseAtts(e.attachments).length; if(_ac){ var pc=document.createElement("span"); pc.textContent=" 📎"+_ac; pc.style.marginLeft="8px"; pc.style.fontSize="12px"; pc.style.color="#0f766e"; l2.appendChild(pc); }
       L.appendChild(l2);
       row.appendChild(L);
       row.addEventListener("click",function(){ openDetail(e); });
@@ -795,6 +854,20 @@
     line((LAB[e.type]||LAB.flight).sub, cut(e.sub,LIMIT.sub));
     line((LAB[e.type]||LAB.flight).detail, cut(e.detail,LIMIT.detail));
     line("메모", cut(e.memo,LIMIT.memo));
+    /* 첨부 파일 */
+    var _atts=parseAtts(e.attachments);
+    if(_atts.length){
+      var ahd=document.createElement("div"); ahd.className="wk-note"; ahd.style.margin="10px 0 2px"; ahd.textContent="📎 첨부 ("+_atts.length+") · 탭하면 새 탭에서 열립니다(구글 로그인 필요)"; bkBody.appendChild(ahd);
+      _atts.forEach(function(a){
+        var d=document.createElement("div"); d.className="erow eitem";
+        var wrp=document.createElement("div"); wrp.className="ei-1"; wrp.style.width="100%";
+        var kk=document.createElement("span"); kk.className="ei-won"; kk.style.width="64px"; kk.textContent=attKindEmoji(a.mime);
+        var vv=document.createElement("span"); vv.style.flex="1"; vv.textContent=attKindLabel(a.mime)+(a.size?(" · "+Math.max(1,Math.round(a.size/1024))+"KB"):"");
+        var op=safeAnchor(attUrl(a.fileId),"열기 ↗");
+        wrp.appendChild(kk); wrp.appendChild(vv); if(op){ op.style.marginLeft="8px"; wrp.appendChild(op); }
+        d.appendChild(wrp); bkBody.appendChild(d);
+      });
+    }
     var links=document.createElement("div"); links.className="erow eitem";
     var lw=document.createElement("div"); lw.className="ei-1";
     var va=safeAnchor(e.voucherUrl,"🎫 바우처"); if(va){ va.style.marginLeft="0"; lw.appendChild(va); }
@@ -810,51 +883,89 @@
   function openForm(e){
     var editing=!!(e&&e.id);
     var cur=editing?e.type:"flight";
+    curExisting=parseAtts(e&&e.attachments); curPending=[];
     bkBody.innerHTML="";
     var back=document.createElement("button"); back.className="etab"; back.textContent="← 목록"; back.style.marginBottom="10px";
     back.addEventListener("click",renderList); bkBody.appendChild(back);
     var ttl=document.createElement("h2"); ttl.style.fontSize="15px"; ttl.textContent=editing?"✏️ 예약 수정":"➕ 예약 추가"; bkBody.appendChild(ttl);
     /* type 세그먼트 */
     var seg=document.createElement("div"); seg.className="etabs"; bkBody.appendChild(seg);
-    var labels={}; /* 라벨 엘리먼트 갱신용 */
-    function relabel(){ var L=LAB[cur]||LAB.flight;
-      labels.title.textContent=L.title; labels.sub.textContent=L.sub; labels.detail.textContent=L.detail; }
+    var titleLabelEl=null;
+    function relabel(){ if(titleLabelEl) titleLabelEl.textContent=(LAB[cur]||LAB.flight).title; }
     TYPES.forEach(function(t){ var b=document.createElement("div"); b.className="etab"+(cur===t[0]?" on":""); b.textContent=t[1]+" "+t[2];
       b.addEventListener("click",function(){ cur=t[0]; Array.prototype.forEach.call(seg.childNodes,function(n){n.className="etab";}); b.className="etab on"; relabel(); }); seg.appendChild(b); });
-    /* 필드 (PNR/여권/영문명 필드 없음) */
+    /* 필드: 제목 + 날짜/시간 (PNR·여권·영문명 없음) */
     var initDT=""; if(e&&e.datetime){ var mm=esc(e.datetime).match(/(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/); if(mm){ initDT=mm[1]+(mm[2]?("T"+mm[2]):""); } }
-    var fTitle=field("title",  "bk-title",  e&&e.title,  "text");   labels.title=fTitle.querySelector("label");
-    var fDate =field("날짜",   "bk-date",   initDT?initDT.slice(0,10):"", "date");
-    var fTime =field("시간",   "bk-time",   initDT&&initDT.length>10?initDT.slice(11):"", "time");
-    var fSub  =field("sub",    "bk-sub",    e&&e.sub,    "text");   labels.sub=fSub.querySelector("label");
-    var fDet  =field("detail", "bk-detail", e&&e.detail, "text");   labels.detail=fDet.querySelector("label");
-    var fVou  =field("🎫 바우처 URL (http/https)","bk-voucher", e&&e.voucherUrl,"url");
-    var fMap  =field("🗺️ 지도 URL (http/https)","bk-map",     e&&e.mapUrl,    "url");
-    var fMemo =field("메모",   "bk-memo",   e&&e.memo,   "text");
-    [fTitle,fDate,fTime,fSub,fDet,fVou,fMap,fMemo].forEach(function(x){ bkBody.appendChild(x); });
+    var fTitle=field("title","bk-title", e&&e.title,"text"); titleLabelEl=fTitle.querySelector("label");
+    var fDate =field("날짜 (선택)","bk-date", initDT?initDT.slice(0,10):"","date");
+    var fTime =field("시간 (선택)","bk-time", initDT&&initDT.length>10?initDT.slice(11):"","time");
+    bkBody.appendChild(fTitle); bkBody.appendChild(fDate); bkBody.appendChild(fTime);
     relabel();
-    var save=document.createElement("button"); save.className="ebtn"; save.style.marginTop="8px"; save.textContent=editing?"저장":"추가";
+    /* 📎 첨부 파일 (PDF·이미지 · 여러 개) */
+    var attWrap=document.createElement("div"); attWrap.className="ef";
+    var attLbl=document.createElement("label"); attLbl.textContent="📎 첨부 — 항공권·바우처 (PDF·이미지)"; attWrap.appendChild(attLbl);
+    var attInput=document.createElement("input"); attInput.type="file"; attInput.accept="application/pdf,image/*"; attInput.multiple=true; attInput.style.display="none";
+    var attPick=document.createElement("button"); attPick.type="button"; attPick.className="etab"; attPick.style.width="auto"; attPick.textContent="📎 파일 추가";
+    var attStat=document.createElement("span"); attStat.className="wk-note"; attStat.style.marginLeft="8px";
+    var attList=document.createElement("div"); attList.style.marginTop="6px";
+    attWrap.appendChild(attInput); attWrap.appendChild(attPick); attWrap.appendChild(attStat); attWrap.appendChild(attList);
+    bkBody.appendChild(attWrap);
+    function paintAtt(){
+      attList.innerHTML="";
+      curExisting.forEach(function(a,idx){ attList.appendChild(attRow(attKindEmoji(a.mime)+" "+attKindLabel(a.mime), function(){ curExisting.splice(idx,1); paintAtt(); })); });
+      curPending.forEach(function(f,idx){ attList.appendChild(attRow("⏳ "+cut(f.name,26)+" (저장 시 업로드)", function(){ curPending.splice(idx,1); paintAtt(); })); });
+      var n=curExisting.length+curPending.length; attPick.textContent=n?("📎 파일 추가 ("+n+")"):"📎 파일 추가";
+    }
+    attPick.addEventListener("click",function(){ attInput.click(); });
+    attInput.addEventListener("change",function(){
+      var fs=attInput.files; if(fs){ for(var i=0;i<fs.length;i++){ var f=fs[i];
+        var okT=/^image\//.test(f.type||"")||f.type==="application/pdf"||/\.pdf$/i.test(f.name||"");
+        if(!okT){ bkToast("PDF·이미지만 첨부 가능"); continue; }
+        if(f.size>10*1024*1024){ bkToast("10MB 초과 — 요약 페이지만: "+cut(f.name,18)); continue; }
+        if(curExisting.length+curPending.length>=5){ bkToast("최대 5개까지"); break; }
+        curPending.push(f);
+      } }
+      attInput.value=""; paintAtt();
+    });
+    paintAtt();
+    /* 선택 필드 */
+    var fVou=field("🔗 예약 링크 (선택 · http/https)","bk-voucher", e&&e.voucherUrl,"url");
+    var fMap=field("🗺️ 지도 URL (선택)","bk-map", e&&e.mapUrl,"url");
+    var fMemo=field("메모 (선택)","bk-memo", e&&e.memo,"text");
+    bkBody.appendChild(fVou); bkBody.appendChild(fMap); bkBody.appendChild(fMemo);
+    var save=document.createElement("button"); save.id="bk-save"; save.className="ebtn"; save.style.marginTop="8px"; save.textContent=editing?"저장":"추가";
     save.addEventListener("click",function(){ submitForm(editing,e,cur); }); bkBody.appendChild(save);
-    var warn=document.createElement("div"); warn.className="wk-note"; warn.style.color="#c0392b"; warn.textContent="※ PNR·여권번호·영문 이름은 저장하지 않습니다."; bkBody.appendChild(warn);
+    var warn=document.createElement("div"); warn.className="wk-note"; warn.style.color="#c0392b"; warn.style.marginTop="6px"; warn.textContent="※ 첨부 파일은 팀원 4명만 열람 가능한 제한 폴더에 저장됩니다(열람 시 본인 구글 로그인 필요). PNR·여권번호는 시트에 저장하지 않습니다."; bkBody.appendChild(warn);
   }
   function val(id){ var el=document.getElementById(id); return el?el.value:""; }
   function submitForm(editing,e,cur){
     if(busy) return;
     if(!configured()){ note(bkBody,"연동 설정이 필요합니다 (저장 안 됨)"); return; }
     var title=cut(val("bk-title"),LIMIT.title).trim();
-    if(!title){ alert("제목(title)을 입력하세요"); return; }
+    if(!title){ alert("제목을 입력하세요"); return; }
     var date=val("bk-date"), time=val("bk-time");
     var datetime=date?(time?(date+"T"+time):date):"";
     var vou=esc(val("bk-voucher")).trim(); if(vou && !/^https?:\/\//i.test(vou)) vou="";
     var map=esc(val("bk-map")).trim();     if(map && !/^https?:\/\//i.test(map)) map="";
     var id=editing?e.id:("b"+Date.now()+Math.floor(Math.random()*1e4));
-    var entry={ id:id, type:cur, title:title, datetime:datetime,
-      sub:cut(val("bk-sub"),LIMIT.sub), detail:cut(val("bk-detail"),LIMIT.detail),
-      voucherUrl:vou, mapUrl:map, memo:cut(val("bk-memo"),LIMIT.memo) };
-    busy=true;
-    postEntry({action:editing?"update":"add",token:TOKEN,sheet:SHEET,entry:entry}).then(function(){ return relist(); }).then(function(){
-      busy=false; filter="all"; renderList();
-    }).catch(function(){ busy=false; note(bkBody,"⚠️ 저장 실패 (네트워크)"); });
+    var saveBtn=document.getElementById("bk-save");
+    busy=true; if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent="저장 중…"; }
+    var jobs=curPending.slice().map(function(f){ return function(){ return uploadOne(id,f); }; });
+    runSeq(jobs, function(n,tot){ if(saveBtn) saveBtn.textContent="업로드 중… ("+n+"/"+tot+")"; }).then(function(results){
+      var newAtts=results.filter(Boolean);
+      var failed=results.length-newAtts.length;
+      var atts=curExisting.concat(newAtts);
+      var entry={ id:id, type:cur, title:title, datetime:datetime,
+        sub: editing?(e.sub||""):"", detail: editing?(e.detail||""):"",
+        voucherUrl:vou, mapUrl:map, memo:cut(val("bk-memo"),LIMIT.memo),
+        attachments: JSON.stringify(atts) };
+      if(saveBtn) saveBtn.textContent="저장 중…";
+      return postEntry({action:editing?"update":"add",token:TOKEN,sheet:SHEET,entry:entry}).then(function(){ return relist(); }).then(function(){
+        busy=false; curPending=[];
+        if(failed) bkToast(failed+"개 파일 업로드 실패 — 나머지는 저장됨");
+        filter="all"; renderList();
+      });
+    }).catch(function(){ busy=false; if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent=editing?"저장":"추가"; } note(bkBody,"⚠️ 저장 실패 (네트워크)"); });
   }
   function relist(){ return jsonp("action=list&sheet="+SHEET+"&token="+encodeURIComponent(TOKEN)).then(function(d){ if(d&&d.ok&&d.items) items=d.items; }).catch(function(){}); }
   function delBooking(e){
