@@ -192,7 +192,45 @@
   .empty2{padding:26px 14px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.7;}
 
   /* ── 데스크톱 ── */
-  .t-charge{background:#ccfbf1;}
+  .t-charge{background:#ccfbf1;} .t-fly{background:#e0f2fe;}
+
+  /* ── 잔액·환율(V4) ── */
+  .balcard{background:var(--cta);color:#fff;border-radius:var(--r-xl);padding:18px;margin:2px 0 12px;box-shadow:var(--sh-el);}
+  .balcard .v{font-size:33px;font-weight:800;letter-spacing:-.02em;margin:6px 0 2px;}
+  .balcard .s{font-size:11.5px;color:#9ca3af;}
+  .balcard .cap{color:#9ca3af;}
+  .gauge{height:8px;border-radius:99px;background:rgba(255,255,255,.16);margin-top:13px;overflow:hidden;}
+  .gauge i{display:block;height:100%;border-radius:99px;background:var(--accent);}
+  .statrow{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px;}
+  .statrow .card{padding:12px 14px;}
+  .statrow .v{font-size:16.5px;font-weight:800;margin-top:3px;}
+  .catbar{display:flex;align-items:center;gap:9px;padding:7px 4px;}
+  .catbar .cdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
+  .catbar .cl{font-size:12.5px;font-weight:600;width:74px;flex:0 0 auto;}
+  .catbar .track{flex:1;height:7px;border-radius:99px;background:var(--bg3);overflow:hidden;}
+  .catbar .track i{display:block;height:100%;border-radius:99px;}
+  .catbar .cv{font-size:12px;font-weight:700;color:var(--ink3);width:70px;text-align:right;flex:0 0 auto;}
+  .fxw{padding:14px;margin-top:14px;}
+  .fxrow{display:flex;align-items:flex-end;gap:9px;}
+  .fxcell{flex:1;}
+  .fxcell label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  .fxcell input{width:100%;border:.6px solid var(--line);border-radius:10px;padding:11px 13px;font-size:17px;font-weight:800;text-align:right;font-family:inherit;background:var(--bg);color:var(--ink);}
+  .fxswap{flex:0 0 auto;width:38px;height:38px;border-radius:50%;background:var(--cta);color:#fff;font-size:16px;font-weight:800;margin-bottom:2px;}
+
+  /* ── 예약(V4) ── */
+  .bkrow{display:flex;gap:11px;align-items:flex-start;padding:12px;margin-bottom:9px;cursor:pointer;}
+  .bkrow .tile{margin-top:1px;}
+  .bkrow .bd{min-width:0;flex:1;}
+  .bkrow .nm{font-size:13.5px;font-weight:700;}
+  .bkrow .sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+  .bkrow .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+  .chip{font-size:10.5px;font-weight:700;background:var(--bg3);color:var(--ink3);border-radius:999px;padding:3px 9px;text-decoration:none;display:inline-flex;align-items:center;gap:3px;}
+  a.chip:hover{background:var(--hover);}
+  .attlist{margin-top:8px;}
+  .attitem{display:flex;align-items:center;gap:8px;border:.6px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:6px;font-size:12px;}
+  .attitem .x{margin-left:auto;color:#dc2626;font-weight:800;cursor:pointer;padding:0 4px;}
+  .attitem a{color:var(--accent-ink);text-decoration:none;font-weight:700;}
+
   @media (min-width:760px){
     .sheet{left:16px;right:auto;top:76px;bottom:24px;width:392px;height:auto !important;border-radius:var(--r-xl);
       box-shadow:0 4px 32px rgba(0,0,0,.10),0 0 0 1px rgba(0,0,0,.04);}
@@ -230,20 +268,26 @@
       <div id="exp-body"></div>
     </div>
     <div class="view" id="v-bal" style="display:none">
-      <div class="card empty">
-        <div class="eic">💰</div>
-        <div class="et">트레블월렛 잔액</div>
-        <div class="es">V4 단계에서 새 디자인으로 이사 옵니다.<br>그동안은 기존 앱에서 확인해 주세요.</div>
-        <a class="ghost" href="index.html">기존 앱에서 잔액 확인 →</a>
+      <div id="bal-body"></div>
+      <div class="card fxw">
+        <div class="cap" style="display:block;padding:2px 2px 9px">환율 계산기</div>
+        <div class="fxrow">
+          <div class="fxcell"><label>¥ 엔</label><input id="fx-j" class="num" type="text" inputmode="decimal" value="1,000"></div>
+          <button class="fxswap" id="fx-swap" title="값 교환">⇅</button>
+          <div class="fxcell"><label>₩ 원</label><input id="fx-k" class="num" type="text" inputmode="decimal"></div>
+        </div>
+        <div class="s num" id="fx-note" style="font-size:11px;color:var(--muted);margin-top:9px"></div>
       </div>
     </div>
     <div class="view" id="v-bk" style="display:none">
-      <div class="card empty">
-        <div class="eic">🎫</div>
-        <div class="et">예약 · 첨부</div>
-        <div class="es">V4 단계에서 새 디자인으로 이사 옵니다.<br>그동안은 기존 앱에서 관리해 주세요.</div>
-        <a class="ghost" href="index.html">기존 앱에서 예약 관리 →</a>
+      <div class="expbar">
+        <div class="seg" id="bkseg">
+          <button class="on" data-t="all">전체</button><button data-t="flight">✈️</button><button data-t="hotel">🏨</button><button data-t="train">🚄</button>
+        </div>
+        <button class="rfbtn" id="bk-refresh" title="새로고침">↻</button>
       </div>
+      <div id="bk-body"></div>
+      <button class="ghost" id="bk-add" style="margin-top:4px;width:100%">＋ 예약 추가</button>
     </div>
   </div>
 </section>
@@ -257,6 +301,37 @@
 
 <button class="fab" id="fab">＋ 경비 추가</button>
 <input type="file" id="e-file" accept="image/*" style="display:none">
+<input type="file" id="b-file" accept="image/*,application/pdf" multiple style="display:none">
+
+<div class="dlgwrap" id="bdlg">
+  <div class="back" id="bdlg-back"></div>
+  <div class="dlg">
+    <div class="grip"><i></i></div>
+    <h3 id="bdlg-ttl">예약 추가</h3>
+    <div class="f">
+      <label>유형</label>
+      <div class="seg" id="b-type">
+        <button type="button" class="on" data-t="flight">✈️ 항공</button>
+        <button type="button" data-t="hotel">🏨 숙소</button>
+        <button type="button" data-t="train">🚄 열차</button>
+      </div>
+      <label>제목 * (PNR·여권정보 금지)</label>
+      <input id="b-title" type="text" maxlength="120" placeholder="예: ICN→KIX 대한항공">
+      <label>일시</label>
+      <input id="b-dt" type="datetime-local">
+      <label>부가 정보</label>
+      <input id="b-sub" type="text" maxlength="120" placeholder="예: 4인 3실 · 조식 미포함">
+      <label>바우처 링크</label>
+      <input id="b-url" type="text" placeholder="https://">
+      <label>메모</label>
+      <input id="b-memo" type="text" maxlength="300">
+      <label>첨부 (PDF·이미지, 4명만 열람)</label>
+      <div class="attlist" id="b-atts"></div>
+      <button class="ghost" id="b-attadd" type="button" style="width:100%">📎 파일 추가</button>
+      <div class="dlgbtns"><button class="del" id="b-del" style="display:none">삭제</button><button class="cta" id="b-save">저장</button></div>
+    </div>
+  </div>
+</div>
 
 <div class="dlgwrap" id="edlg">
   <div class="back" id="edlg-back"></div>
@@ -459,6 +534,8 @@
     if (isMobile()) { sheet.classList.add("anim"); const plan = b.dataset.v === "plan"; setSheet(plan ? DET.half : DET.full, plan ? "half" : "full"); }
     $("#fab").style.display = (b.dataset.v === "exp") ? "flex" : "none";
     if (b.dataset.v === "exp") expEnter();
+    if (b.dataset.v === "bal") balEnter();
+    if (b.dataset.v === "bk") bkEnter();
   }));
 
   /* ── 시트 드래그(모바일): 디텐트 3단 스냅 ── */
@@ -524,8 +601,10 @@
   const FXD2 = (TRIP && TRIP.fx) || {};
   let fxJ = Number(FXD2.jpy_per_usd) > 0 ? Number(FXD2.jpy_per_usd) : 161.5;
   let fxK = Number(FXD2.krw_per_usd) > 0 ? Number(FXD2.krw_per_usd) : 1546;
+  let fxLive = false;
   try { fetch("https://api.frankfurter.dev/v1/latest?base=JPY&symbols=KRW,USD").then(r => r.json()).then(d => {
-    if (d && d.rates && d.rates.USD && d.rates.KRW){ fxJ = 1/d.rates.USD; fxK = d.rates.KRW/d.rates.USD; if (expVisible()) renderExp(); }
+    if (d && d.rates && d.rates.USD && d.rates.KRW){ fxJ = 1/d.rates.USD; fxK = d.rates.KRW/d.rates.USD; fxLive = true;
+      if (expVisible()) renderExp(); if (balVisible()) renderBal(); fxSync(); }
   }).catch(() => {}); } catch(e){}
   const jKrw = j => j/fxJ*fxK, jUsd = j => j/fxJ;
 
@@ -818,6 +897,222 @@
     refresh().then(() => { rb.style.opacity = 1; renderExp(); toast("새로고침됨"); }); });
   $("#fab").addEventListener("click", () => openDlg(null));
   function expEnter(){ loadCacheE(); renderExp(); refresh().then(() => { if (expVisible()) renderExp(); }); }
+
+  /* ═══════════ 잔액·환율(V4) — 경비 데이터 재사용 ═══════════ */
+  const balBody = $("#bal-body");
+  const balVisible = () => $("#v-bal").style.display !== "none";
+  const CAT_COLOR = {"식비":"#f43f5e","교통":"#3b82f6","입장·관광":"#8b5cf6","회식·술":"#f59e0b","숙박":"#22c55e","기타":"#64748b"};
+  function renderBal(){
+    const chs = entries.filter(e => e.cat === "충전");
+    const EX = entries.filter(e => e.cat !== "충전");
+    const charge = chs.reduce((s,e) => s + (Number(e.amount)||0), 0);
+    const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);
+    const bal = charge - spend, pct = charge > 0 ? Math.round(spend/charge*100) : 0;
+    let h = '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
+      '<div class="s num">' + (charge > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(bal)) + " · 환율 " +
+      (fxLive ? "실시간" : "기본(" + String(FXD2.updated || "내장").replace(" (실시간)", "") + ")") + "</div>" +
+      '<div class="gauge"><i style="width:' + Math.min(Math.max(pct,0),100) + '%"></i></div></div>';
+    h += '<div class="statrow"><div class="card"><div class="cap">충전 누적</div><div class="v num">¥' + fmt(charge) + '</div></div>' +
+      '<div class="card"><div class="cap">사용 누적</div><div class="v num">¥' + fmt(spend) + "</div></div></div>";
+    const byCat = {};
+    EX.forEach(e => { byCat[e.cat] = (byCat[e.cat]||0) + (Number(e.amount)||0); });
+    const cats = Object.keys(byCat).sort((a,b2) => byCat[b2] - byCat[a]);
+    if (cats.length){
+      h += '<div class="cap" style="display:block;padding:2px 4px 4px">분류별 사용</div>';
+      const mx = byCat[cats[0]] || 1;
+      cats.forEach(c => { h += '<div class="catbar"><span class="cdot" style="background:' + (CAT_COLOR[c]||"#94a3b8") + '"></span>' +
+        '<span class="cl">' + esc(c) + '</span><div class="track"><i style="width:' + Math.round(byCat[c]/mx*100) + '%;background:' + (CAT_COLOR[c]||"#94a3b8") + '"></i></div>' +
+        '<span class="cv num">¥' + fmt(byCat[c]) + "</span></div>"; });
+    }
+    h += '<div class="cap" style="display:block;padding:12px 4px 6px">충전 내역</div>';
+    if (!chs.length) h += '<div class="card empty2">충전 기록이 없습니다 — 경비 추가에서 분류 \'충전\'으로 입력하세요.</div>';
+    else chs.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(e => {
+      const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
+        ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
+      h += '<div class="card erow" data-id="' + esc(e.id) + '"><span class="tile t-charge">💰</span>' +
+        '<div class="bd"><div class="nm">' + esc(e.memo || "충전") + '</div><div class="who"><span class="lbl num">' + esc(dhead(e.date)) + " · " + esc(e.payer || "?") + "</span></div></div>" + rc +
+        '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(jKrw(e.amount)) + "</div></div></div>";
+    });
+    balBody.innerHTML = h;
+  }
+  balBody.addEventListener("click", ev => {
+    if (ev.target.closest("[data-rc]")) return;
+    const row = ev.target.closest(".erow");
+    if (row){ const e = entries.find(x => String(x.id) === row.dataset.id); if (e) openDlg(e); }
+  });
+  function balEnter(){ loadCacheE(); renderBal(); fxSync(); refresh().then(() => { if (balVisible()) renderBal(); }); }
+
+  /* 환율 위젯(¥↔₩ 양방향) */
+  const fxJI = $("#fx-j"), fxKI = $("#fx-k");
+  const numF = v => { const n = parseFloat(String(v||"").replace(/[^\d.]/g,"")); return isNaN(n) ? 0 : n; };
+  function fxSync(){
+    const j = numF(fxJI.value) || 1000;
+    fxJI.value = fmt(j); fxKI.value = fmt(jKrw(j));
+    $("#fx-note").textContent = "¥100 = ₩" + fmt(jKrw(100)) + " · $1 = ¥" + fxJ.toFixed(1) + " · " + (fxLive ? "실시간" : "기본 환율");
+  }
+  fxJI.addEventListener("input", () => { fxKI.value = fmt(jKrw(numF(fxJI.value))); });
+  fxKI.addEventListener("input", () => { fxJI.value = fmt(numF(fxKI.value) / fxK * fxJ); });
+  $("#fx-swap").addEventListener("click", () => { const j = fxJI.value; fxJI.value = fxKI.value; fxKI.value = j; fxJI.dispatchEvent(new Event("input")); });
+
+  /* ═══════════ 예약(V4) — uploadDoc 파이프라인 v1 검증본 이식 ═══════════ */
+  const BK = { flight:{ emo:"✈️", lbl:"항공", tile:"t-fly" }, hotel:{ emo:"🏨", lbl:"숙소", tile:"t-stay" }, train:{ emo:"🚄", lbl:"열차", tile:"t-see" } };
+  const bkBody = $("#bk-body");
+  let bkItems = [], bkFilter = "all", bkBusy = false;
+  const bkVisible = () => $("#v-bk").style.display !== "none";
+  function bkParseAtt(s){ try { const a = JSON.parse(String(s || "[]")); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+  function bkList(){ return jsonp("action=list&sheet=bookings&token=" + encodeURIComponent(TOKEN)).then(d => {
+    if (d && d.ok && d.items) bkItems = d.items; }).catch(() => {}); }
+  function renderBk(){
+    const list = bkItems.filter(e => bkFilter === "all" || e.type === bkFilter)
+      .slice().sort((a,b2) => String(a.datetime || "9999").localeCompare(String(b2.datetime || "9999")));
+    if (!list.length){ bkBody.innerHTML = '<div class="card empty2">예약이 없습니다.<br>아래 <b>＋ 예약 추가</b>로 시작하세요.</div>'; return; }
+    bkBody.innerHTML = list.map(e => {
+      const t = BK[e.type] || { emo:"🎫", lbl:e.type, tile:"t-etc" };
+      const atts = bkParseAtt(e.attachments);
+      const chips = atts.map(a => '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + esc(a.fileId) + '/view">' +
+        (String(a.mime).indexOf("pdf") >= 0 ? "📄" : "🖼") + " " + (a.size ? Math.max(1, Math.round(a.size/1024)) + "KB" : "보기") + "</a>").join("");
+      const vch = /^https?:\/\//i.test(String(e.voucherUrl || "")) ? '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="' + esc(e.voucherUrl) + '">🔗 바우처</a>' : "";
+      const dt = String(e.datetime || "").replace("T", " ");
+      return '<div class="card bkrow" data-id="' + esc(e.id) + '"><span class="tile ' + t.tile + '">' + t.emo + "</span>" +
+        '<div class="bd"><div class="nm">' + esc(e.title || t.lbl) + "</div>" +
+        '<div class="sub num">' + esc([dt, e.sub].filter(Boolean).join(" · ")) + "</div>" +
+        ((chips || vch) ? '<div class="chips">' + vch + chips + "</div>" : "") + "</div></div>";
+    }).join("");
+  }
+  function bkEnter(){ renderBk(); bkList().then(() => { if (bkVisible()) renderBk(); }); }
+  bkBody.addEventListener("click", ev => {
+    if (ev.target.closest("[data-rc]")) return;
+    const row = ev.target.closest(".bkrow");
+    if (row){ const e = bkItems.find(x => String(x.id) === row.dataset.id); if (e) openBdlg(e); }
+  });
+  $("#bkseg").addEventListener("click", ev => { const b2 = ev.target.closest("button"); if (!b2) return;
+    bkFilter = b2.dataset.t; $("#bkseg").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b2)); renderBk(); });
+  $("#bk-refresh").addEventListener("click", () => { const rb = $("#bk-refresh"); rb.style.opacity = .45;
+    bkList().then(() => { rb.style.opacity = 1; renderBk(); toast("새로고침됨"); }); });
+  $("#bk-add").addEventListener("click", () => openBdlg(null));
+
+  /* 예약 업로드 파이프라인(1800px 다운스케일 + HEIC 원본 폴백 + PDF 원본) */
+  function downscaleDoc(file){ return new Promise((res, rej) => {
+    const fr = new FileReader(); fr.onerror = () => rej(new Error("read"));
+    fr.onload = () => { const img = new Image(); img.onerror = () => rej(new Error("decode"));
+      img.onload = () => {
+        const w = img.naturalWidth || img.width, hh = img.naturalHeight || img.height;
+        if (!w || !hh){ rej(new Error("decode")); return; }
+        const mx = 1800, sc = Math.min(1, mx/Math.max(w,hh)), cw = Math.max(1, Math.round(w*sc)), ch = Math.max(1, Math.round(hh*sc));
+        const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
+        const ctx = cv.getContext("2d"); if (!ctx){ rej(new Error("canvas")); return; }
+        ctx.drawImage(img, 0, 0, cw, ch);
+        let url, b64, q = 0.85;
+        try { url = cv.toDataURL("image/jpeg", q); } catch(e){ rej(new Error("canvas")); return; }
+        b64 = url.split(",")[1] || "";
+        if (_b64bytes(b64) > 8*1024*1024){ q = 0.72; try { url = cv.toDataURL("image/jpeg", q); b64 = url.split(",")[1] || ""; } catch(e2){} }
+        res({ dataBase64:b64, mimeType:"image/jpeg" });
+      };
+      img.src = fr.result; };
+    fr.readAsDataURL(file); }); }
+  function rawDoc(file){ return new Promise((res, rej) => {
+    const t = String(file.type || ""); let mm = /^image\/(jpe?g|png|webp|heic|heif)$/.test(t) ? t : "";
+    if (!mm){ const m = /\.([a-z0-9]+)$/i.exec(String(file.name || "")); mm = (m && RAW_MIME[m[1].toLowerCase()]) || ""; }
+    if (!mm){ rej(new Error("decode")); return; }
+    if (file.size > 10*1024*1024){ rej(new Error("toolarge")); return; }
+    const fr = new FileReader(); fr.onerror = () => rej(new Error("read"));
+    fr.onload = () => { const b64 = String(fr.result).split(",")[1] || ""; if (!b64){ rej(new Error("read")); return; } res({ dataBase64:b64, mimeType:mm }); };
+    fr.readAsDataURL(file); }); }
+  function readDocFile(f){
+    const t = f.type || "", nm = f.name || "";
+    if (/^image\//.test(t) || (t === "" && /\.(jpe?g|png|webp|heic|heif)$/i.test(nm)))
+      return downscaleDoc(f).catch(err => { if (err && err.message === "decode") return rawDoc(f); throw err; });
+    return new Promise((res, rej) => { const fr = new FileReader(); fr.onerror = () => rej(new Error("read"));
+      fr.onload = () => res({ dataBase64:String(fr.result).split(",")[1] || "", mimeType:"application/pdf" }); fr.readAsDataURL(f); });
+  }
+  function uploadOne(id, f){
+    return readDocFile(f).then(p => postEntry({ action:"uploadDoc", token:TOKEN, sheet:"bookings", id, mimeType:p.mimeType, dataBase64:p.dataBase64 })
+      .then(r => (r && r.ok && r.fileId) ? { fileId:r.fileId, mime:r.mime || p.mimeType, size:r.size || 0 } : null)).catch(() => null);
+  }
+  function runSeq(jobs, onProg){ const out = []; let i = 0;
+    const next = () => { if (i >= jobs.length) return Promise.resolve(out); if (onProg) onProg(i+1, jobs.length);
+      return jobs[i]().then(r => { out.push(r); i++; return next(); }); };
+    return next(); }
+
+  /* 예약 다이얼로그 */
+  const bdlg = $("#bdlg"), bFile = $("#b-file");
+  let bEditing = null, bDraft = null, bPend = [];
+  function battRender(){
+    const ex = bDraft.atts.map((a,i) => '<div class="attitem">' + (String(a.mime).indexOf("pdf") >= 0 ? "📄" : "🖼") +
+      ' <a target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + esc(a.fileId) + '/view">기존 첨부 ' + (i+1) + "</a>" +
+      (a.size ? ' <span style="color:var(--muted)">' + Math.max(1, Math.round(a.size/1024)) + "KB</span>" : "") +
+      '<span class="x" data-ex="' + i + '">✕</span></div>').join("");
+    const pd = bPend.map((f,i) => '<div class="attitem">📎 ' + esc(f.name.slice(0,24)) + ' <span style="color:var(--muted)">(저장 시 업로드)</span><span class="x" data-pd="' + i + '">✕</span></div>').join("");
+    $("#b-atts").innerHTML = ex + pd;
+  }
+  function openBdlg(e){
+    bEditing = e ? e.id : null; bPend = [];
+    bDraft = e ? { type:e.type || "flight", title:e.title || "", datetime:e.datetime || "", sub:e.sub || "", voucherUrl:e.voucherUrl || "",
+                   memo:e.memo || "", detail:e.detail || "", mapUrl:e.mapUrl || "", atts: bkParseAtt(e.attachments) }
+               : { type:"flight", title:"", datetime:"", sub:"", voucherUrl:"", memo:"", detail:"", mapUrl:"", atts:[] };
+    $("#bdlg-ttl").textContent = e ? "예약 수정" : "예약 추가";
+    $("#b-type").querySelectorAll("button").forEach(x => x.classList.toggle("on", x.dataset.t === bDraft.type));
+    $("#b-title").value = bDraft.title;
+    $("#b-dt").value = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(bDraft.datetime) ? bDraft.datetime.slice(0,16) : "";
+    $("#b-sub").value = bDraft.sub; $("#b-url").value = bDraft.voucherUrl; $("#b-memo").value = bDraft.memo;
+    $("#b-del").style.display = e ? "" : "none";
+    battRender();
+    bdlg.classList.add("open");
+  }
+  $("#b-type").addEventListener("click", ev => { const b2 = ev.target.closest("button"); if (!b2) return;
+    bDraft.type = b2.dataset.t; $("#b-type").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b2)); });
+  $("#b-attadd").addEventListener("click", () => bFile.click());
+  bFile.addEventListener("change", () => {
+    [...(bFile.files || [])].forEach(f => {
+      const t = f.type || "", okT = /^image\//.test(t) || t === "application/pdf" || /\.pdf$/i.test(f.name || "") || (t === "" && /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name || ""));
+      if (!okT){ toast("이미지/PDF만 첨부 가능: " + f.name); return; }
+      if (f.size > 14*1024*1024){ toast("파일이 너무 큽니다(14MB↓): " + f.name); return; }
+      if (bDraft.atts.length + bPend.length >= 8){ toast("첨부는 최대 8개"); return; }
+      bPend.push(f);
+    });
+    bFile.value = ""; battRender();
+  });
+  $("#b-atts").addEventListener("click", ev => {
+    const x = ev.target.closest(".x"); if (!x) return;
+    if (x.dataset.ex != null){ bDraft.atts = bDraft.atts.filter((_,i) => i !== Number(x.dataset.ex)); }
+    if (x.dataset.pd != null){ bPend = bPend.filter((_,i) => i !== Number(x.dataset.pd)); }
+    battRender();
+  });
+  $("#bdlg-back").addEventListener("click", () => { if (!bkBusy) bdlg.classList.remove("open"); });
+  $("#b-save").addEventListener("click", () => {
+    if (bkBusy) return;
+    const title = $("#b-title").value.trim();
+    if (!title){ toast("제목을 입력하세요"); return; }
+    if (!configured()){ toast("연동 설정이 필요합니다"); return; }
+    const id = bEditing || ("b" + Date.now() + Math.floor(Math.random()*1e4));
+    const btn = $("#b-save");
+    bkBusy = true; btn.disabled = true;
+    const finish = (ok, msg) => { bkBusy = false; btn.disabled = false; btn.textContent = "저장";
+      if (msg) toast(msg); if (ok){ bdlg.classList.remove("open"); renderBk(); } };
+    runSeq(bPend.map(f => () => uploadOne(id, f)), (i,n) => { btn.textContent = "업로드 " + i + "/" + n + "…"; }).then(results => {
+      const okAtts = results.filter(Boolean);
+      const failed = results.length - okAtts.length;
+      btn.textContent = "저장 중…";
+      const entry = { id, type:bDraft.type, title, datetime: $("#b-dt").value || bDraft.datetime || "", sub: $("#b-sub").value,
+        detail: bDraft.detail, voucherUrl: $("#b-url").value, mapUrl: bDraft.mapUrl, memo: $("#b-memo").value,
+        attachments: JSON.stringify(bDraft.atts.concat(okAtts)) };
+      return postEntry({ action: bEditing ? "update" : "add", token:TOKEN, sheet:"bookings", entry }).then(r => {
+        if (r && r.ok === false){ finish(false, r.error === "not found" ? "이미 삭제된 예약 — 새로고침 후 다시 시도" : "저장 거부" + (r.error ? ": " + r.error : "")); return; }
+        return bkList().then(() => {
+          const ok = bkItems.some(x => String(x.id) === String(id));
+          finish(ok, failed ? (failed + "개 파일 업로드 실패 — 나머지는 저장됨") : (ok ? (bEditing ? "수정됨" : "저장됨") : "저장 확인 안 됨 — 새로고침"));
+        });
+      });
+    }).catch(() => finish(false, "저장 실패(네트워크)"));
+  });
+  $("#b-del").addEventListener("click", () => {
+    if (bkBusy || !bEditing) return;
+    if (!confirm("이 예약을 삭제할까요?")) return;
+    bkBusy = true; const btn = $("#b-del"); btn.textContent = "삭제 중…";
+    postEntry({ action:"delete", token:TOKEN, sheet:"bookings", id:bEditing }).then(() => bkList()).then(() => {
+      bkBusy = false; btn.textContent = "삭제"; bdlg.classList.remove("open"); renderBk(); toast("삭제됨");
+    }).catch(() => { bkBusy = false; btn.textContent = "삭제"; toast("삭제 실패"); });
+  });
 })();
 </script>
 </body>
