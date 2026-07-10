@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
 <title>교토·오사카 일정·동선 대시보드</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+<script src="vendor/leaflet/leaflet.js"></script>
 <style>
   :root { --bg:#f5f6f8; --card:#fff; --line:#e3e6ea; --ink:#222; --muted:#6b7280; }
   * { box-sizing: border-box; }
@@ -469,6 +469,21 @@
         fr.readAsDataURL(file);
       });
     }
+    var RAW_MIME={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",heic:"image/heic",heif:"image/heif"};
+    function rawMime(f){ var t=String(f.type||""); if(/^image\/(jpe?g|png|webp|heic|heif)$/.test(t)) return t; var m=/\.([a-z0-9]+)$/i.exec(String(f.name||"")); return (m&&RAW_MIME[m[1].toLowerCase()])||""; }
+    function rawUpload(file, cat, id){ // 브라우저가 디코드 못 하는 포맷(HEIC 등): 원본 그대로 업로드. 서버 실바이트 상한 8MB와 동일 게이트
+      return new Promise(function(res,rej){
+        var mm=rawMime(file); if(!mm){ rej(new Error("decode")); return; }
+        if(file.size>8*1024*1024){ rej(new Error("toolarge")); return; }
+        var fr=new FileReader(); fr.onerror=function(){ rej(new Error("read")); };
+        fr.onload=function(){
+          var b64=String(fr.result).split(",")[1]||""; if(!b64){ rej(new Error("read")); return; }
+          var fn=String((draft.date||"")+"_"+(cat||"")+"_"+String(id).slice(-4)).replace(/[^\w.\-가-힣]/g,"_");
+          res({dataBase64:b64, mimeType:mm, filename:fn});
+        };
+        fr.readAsDataURL(file);
+      });
+    }
     function receiptAnchor(url){
       if(!/^https:\/\/(drive|docs)\.google\.com\//.test(String(url||""))) return null;
       var a=document.createElement("a");
@@ -505,7 +520,10 @@
       }
       if(draft.rcFile && !draft.receipt){
         if(btn) btn.textContent="영수증 업로드 중…";
-        downscale(draft.rcFile, draft.cat, id).then(function(p){
+        downscale(draft.rcFile, draft.cat, id).catch(function(err){
+          if(err&&err.message==="decode") return rawUpload(draft.rcFile, draft.cat, id);
+          throw err;
+        }).then(function(p){
           return postEntry({action:"upload",token:EXP.token,id:id,filename:p.filename,mimeType:p.mimeType,dataBase64:p.dataBase64});
         }).then(function(r){
           if(r && r.ok && r.url){ draft.receipt=r.url; draft.rcFile=null; return doSave(r.url); }
@@ -530,8 +548,14 @@
       if(!EX.length){ ebody.appendChild(elNote("아직 입력된 경비가 없습니다.")); return; }
       var tot=EX.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
       var head=document.createElement("div"); head.className="elist-head";
-      head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0)+" · "+EX.length+"건 · 1인평균 ₩"+fmt(jKrw(tot)/MEMBERS.length);
+      head.textContent="총 ¥"+fmt(tot)+" ≈ ₩"+fmt(jKrw(tot))+" / $"+jUsd(tot).toFixed(0)+" · "+EX.length+"건";
       ebody.appendChild(head);
+      // 항목별 참여자(parts) 기준 분담 — 정산 탭(tabSettle)과 동일 규칙(참여자 미지정=전원)이라 두 곳이 항상 일치해야 함
+      var burden={};
+      EX.forEach(function(e){ var a=Number(e.amount)||0; var pr=(e.parts&&e.parts.length)?e.parts:MEMBERS; var sh=a/pr.length; pr.forEach(function(m){ burden[m]=(burden[m]||0)+sh; }); });
+      var bnames=MEMBERS.slice(); Object.keys(burden).forEach(function(m){ if(bnames.indexOf(m)<0) bnames.push(m); });
+      var bparts=bnames.filter(function(m){ return burden[m]>0; }).map(function(m){ return m+" ₩"+fmt(jKrw(burden[m])); });
+      if(bparts.length) ebody.appendChild(elNote("1인부담(참여기준): "+bparts.join(" · ")));
       var byDate={}; EX.forEach(function(e){ var d=e.date||"?"; (byDate[d]=byDate[d]||[]).push(e); });
       Object.keys(byDate).sort().forEach(function(d){
         var list=byDate[d];
@@ -771,9 +795,24 @@
       fr.readAsDataURL(file);
     });
   }
+  var BK_RAW_MIME={jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",heic:"image/heic",heif:"image/heif"};
+  function rawDoc(file){ // 브라우저가 디코드 못 하는 포맷(HEIC 등): 원본 그대로 업로드. 서버 실바이트 상한 10MB와 동일 게이트
+    return new Promise(function(res,rej){
+      var t=String(file.type||""), mm=/^image\/(jpe?g|png|webp|heic|heif)$/.test(t)?t:"";
+      if(!mm){ var m=/\.([a-z0-9]+)$/i.exec(String(file.name||"")); mm=(m&&BK_RAW_MIME[m[1].toLowerCase()])||""; }
+      if(!mm){ rej(new Error("decode")); return; }
+      if(file.size>10*1024*1024){ rej(new Error("toolarge")); return; }
+      var fr=new FileReader(); fr.onerror=function(){ rej(new Error("read")); };
+      fr.onload=function(){ var b64=String(fr.result).split(",")[1]||""; if(!b64){ rej(new Error("read")); return; } res({dataBase64:b64, mimeType:mm}); };
+      fr.readAsDataURL(file);
+    });
+  }
   function readFile(file){
     var t=file.type||"", nm=file.name||"";
-    if(/^image\//.test(t) || (t===""&&/\.(jpe?g|png|webp|heic|heif)$/i.test(nm))) return downscaleImg(file);
+    if(/^image\//.test(t) || (t===""&&/\.(jpe?g|png|webp|heic|heif)$/i.test(nm))) return downscaleImg(file).catch(function(err){
+      if(err&&err.message==="decode") return rawDoc(file);
+      throw err;
+    });
     return new Promise(function(res,rej){
       var fr=new FileReader(); fr.onerror=function(){ rej(new Error("read")); };
       fr.onload=function(){ var b64=String(fr.result).split(",")[1]||""; res({dataBase64:b64, mimeType:"application/pdf"}); };
