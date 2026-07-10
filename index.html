@@ -619,7 +619,10 @@
       while(ci<cred.length&&di<debt.length){ var amt=Math.min(cred[ci].v,debt[di].v); tr.push({from:debt[di].m,to:cred[ci].m,amt:amt}); cred[ci].v-=amt; debt[di].v-=amt; if(cred[ci].v<1)ci++; if(debt[di].v<1)di++; }
       var h=document.createElement("div"); h.style.fontWeight="700"; h.style.margin="2px 0 6px"; h.textContent="정산 (₩ 기준 · 최소 송금)"; ebody.appendChild(h);
       if(!tr.length){ ebody.appendChild(elNote("정산할 차액이 없습니다.")); }
-      tr.forEach(function(t){ var r=document.createElement("div"); r.className="erow"; r.textContent=t.from+" → "+t.to+"   ₩"+fmt(t.amt); ebody.appendChild(r); });
+      // 건별 개별 반올림은 합계가 총차액과 ₩1~2 어긋날 수 있음 → 마지막 건이 누적 잔차를 흡수해 합계=round(총액) 보장
+      var trTarget=Math.round(tr.reduce(function(s,t){return s+t.amt;},0)), trAcc=0;
+      var trDisp=tr.map(function(t,i){ var v=(i===tr.length-1)?(trTarget-trAcc):Math.round(t.amt); trAcc+=v; return {from:t.from,to:t.to,amt:v}; });
+      trDisp.forEach(function(t){ var r=document.createElement("div"); r.className="erow"; r.textContent=t.from+" → "+t.to+"   ₩"+fmt(t.amt); ebody.appendChild(r); });
       ebody.appendChild(elNote("결제액 − (항목별 1/참여자수) 분담액 기준."));
     }
     loadCache();
@@ -632,7 +635,10 @@
   var WEBAPP=(typeof TRIP!=="undefined"&&TRIP.expense&&TRIP.expense.webapp_url)||"";
   var TOKEN=(typeof TRIP!=="undefined"&&TRIP.expense&&TRIP.expense.token)||"";
   var EMO={"식비":"🍜","교통":"🚆","입장·관광":"🏯","회식·술":"🍻","숙박":"🏨","기타":"🧾","충전":"💰"};
-  var rate=0;
+  // 환율 폴백을 경비 모듈과 동일 출처(TRIP.fx)로 통일 — API 실패 시에도 ₩환산 유지
+  var FXD=(typeof TRIP!=="undefined"&&TRIP.fx)||{};
+  var rate=(Number(FXD.krw_per_usd)>0&&Number(FXD.jpy_per_usd)>0)?(Number(FXD.krw_per_usd)/Number(FXD.jpy_per_usd)):0;
+  var rateLive=false;
   function fmt(n){ return Math.round(Number(n)||0).toLocaleString(); }
   function note(b,t){ b.innerHTML='<div class="wk-note" style="font-size:13px">'+t+'</div>'; }
   function won(j){ return rate?(" ≈₩"+fmt(j*rate)):""; }
@@ -643,7 +649,7 @@
     function clean(){ try{delete window[cb];}catch(e){window[cb]=undefined;} if(s.parentNode)s.remove(); clearTimeout(to); }
     window[cb]=function(d){ clean(); res(d); }; s.onerror=function(){ clean(); rej(); };
     s.src=WEBAPP+"?"+params+"&callback="+cb; document.body.appendChild(s); }); }
-  function getRate(){ try{ fetch("https://api.frankfurter.dev/v1/latest?base=JPY&symbols=KRW").then(function(r){return r.json();}).then(function(d){ if(d&&d.rates&&d.rates.KRW) rate=d.rates.KRW; }).catch(function(){}); }catch(e){} }
+  function getRate(){ try{ fetch("https://api.frankfurter.dev/v1/latest?base=JPY&symbols=KRW").then(function(r){return r.json();}).then(function(d){ if(d&&d.rates&&d.rates.KRW){ rate=d.rates.KRW; rateLive=true; } }).catch(function(){}); }catch(e){} }
   function delCharge(id, body){
     if(!id) return;
     if(!window.confirm("이 충전 기록을 삭제할까요?")) return;
@@ -666,6 +672,11 @@
     return a;
   }
   function render(body, items){
+    // 실시간 환율 미확보 시 렌더 시점의 TRIP.fx로 폴백 재계산 — 경비 모듈이 TRIP.fx를 갱신했을 수 있어 초기화 시점 값보다 정확
+    if(!rateLive){ var f2=(typeof TRIP!=="undefined"&&TRIP.fx)||{}; var r2=(Number(f2.krw_per_usd)>0&&Number(f2.jpy_per_usd)>0)?(Number(f2.krw_per_usd)/(Number(f2.jpy_per_usd))):0; if(r2) rate=r2; }
+    // 라벨은 값의 실제 출처 기준: 경비 모듈이 TRIP.fx를 이미 실시간으로 갱신한 경우(updated에 "(실시간)") 잔액도 "실시간" 표기 — 패널 간 표기 모순 방지
+    var srcUpd=String((((typeof TRIP!=="undefined"&&TRIP.fx)||{}).updated)||FXD.updated||"내장");
+    var isLive=rateLive||srcUpd.indexOf("(실시간)")>=0;
     var charge=0,spend=0,charges=[],byCat={};
     items.forEach(function(e){ var c=e.cat||"기타", a=Number(e.amount)||0;
       if(c==="충전"){ charge+=a; charges.push(e); } else { spend+=a; byCat[c]=(byCat[c]||0)+a; } });
@@ -677,7 +688,7 @@
       +'<div style="flex:1"><div class="wk-note" style="margin:0">사용</div><div style="font-weight:700">¥'+fmt(spend)+'</div></div>'
       +'<div style="flex:1"><div class="wk-note" style="margin:0">잔액</div><div style="font-weight:700;color:'+(bal<0?"#c0392b":"#0f766e")+'">¥'+fmt(bal)+'</div></div></div>'
       +'<div class="bar"><i style="width:'+Math.min(Math.max(pct,0),100)+'%;'+(pct>100?"background:#c0392b":"")+'"></i></div>'
-      +'<div class="wk-note">'+(charge>0?(pct+'% 사용 · '):'')+'잔액'+(rate?(" ≈₩"+fmt(bal*rate)):"")+'</div>';
+      +'<div class="wk-note">'+(charge>0?(pct+'% 사용 · '):'')+'잔액'+(rate?(" ≈₩"+fmt(bal*rate)+' · 환율 '+(isLive?'실시간':'기본('+srcUpd.replace(' (실시간)','')+')')):"")+'</div>';
     body.appendChild(top);
     if(charge===0){ var w=document.createElement("div"); w.className="wk-note"; w.style.color="#c0392b"; w.style.margin="6px 0";
       w.textContent="아직 충전 기록이 없습니다 → 🧾경비 입력에서 분류 '충전'으로 충전액을 넣어주세요."; body.appendChild(w); }
