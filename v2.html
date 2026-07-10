@@ -98,6 +98,29 @@
   .empty .et{font-size:14.5px;font-weight:800;}
   .empty .es{font-size:12px;color:var(--muted);margin:6px 0 16px;line-height:1.6;}
 
+  /* ── 일정 리스트(V2) ── */
+  .t-food{background:#ffe4e6;} .t-move{background:#dbeafe;} .t-see{background:#ede9fe;}
+  .t-cafe{background:#fef3c7;} .t-street{background:#ffedd5;} .t-stay{background:#dcfce7;}
+  .t-conf{background:#dbeafe;} .t-etc{background:#f1f5f9;}
+  .stop{display:flex;gap:10px;align-items:center;padding:11px 12px;margin-bottom:8px;cursor:pointer;
+    transition:box-shadow .2s,border-color .2s;}
+  .stop.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft),var(--sh-card);}
+  .stop .tm{font-size:10.5px;color:var(--muted);font-weight:700;width:37px;flex:0 0 auto;line-height:1.4;}
+  .stop .bd{min-width:0;flex:1;}
+  .stop .nm{font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .stop .sub{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .stop .badge{margin-left:auto;font-size:10px;font-weight:800;border-radius:999px;padding:3px 8px;flex:0 0 auto;}
+  .bg-resv{background:#fee2e2;color:#b91c1c;} .bg-rec{background:#fef9c3;color:#a16207;} .bg-heat{background:#ffedd5;color:#c2410c;}
+  .transit{display:flex;align-items:center;gap:7px;padding:0 12px 8px 59px;color:var(--muted);font-size:10.5px;font-weight:600;}
+  .transit i{width:14px;border-top:2px dotted var(--line);flex:0 0 auto;}
+  .rankb{width:27px;height:27px;border-radius:8px;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .score{margin-left:auto;font-size:12px;font-weight:800;color:var(--accent-ink);flex:0 0 auto;}
+  .dsum{display:flex;align-items:center;gap:11px;padding:12px 13px;margin-bottom:8px;cursor:pointer;}
+  .dsum .nb{width:34px;height:34px;border-radius:10px;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .dsum .t{font-size:13.5px;font-weight:700;}
+  .dsum .s{font-size:11px;color:var(--muted);margin-top:1px;}
+  .dsum .ar{margin-left:auto;color:var(--muted);font-weight:800;}
+
   /* ── 데스크톱 ── */
   @media (min-width:760px){
     .sheet{left:16px;right:auto;top:76px;bottom:24px;width:392px;height:auto !important;border-radius:var(--r-xl);
@@ -124,7 +147,7 @@
     <div class="view" id="v-plan">
       <div class="dayseg" id="dayseg"></div>
       <div id="dayinfo"></div>
-      <div class="hint">지도의 번호 마커를 눌러 장소 정보를 확인하세요.<br>상세 일정 리스트는 <b>V2 단계</b>에서 이 자리에 들어옵니다.</div>
+      <div id="daylist"></div>
     </div>
     <div class="view" id="v-exp" style="display:none">
       <div class="card empty">
@@ -191,10 +214,11 @@
   let layer = L.layerGroup().addTo(map);
 
   const CAT_EMOJI = {"명소":"🏯","맛집":"🍜","카페":"☕","번화가":"🏮","숙소":"🏨","학회":"🎓","교통":"🚆","휴식":"😴"};
-  const mkIcon = (color, label) => L.divIcon({ className:"", iconSize:[30,30], iconAnchor:[15,15],
-    html:'<div style="width:30px;height:30px;border-radius:50%;background:' + color + ';color:#fff;' +
-      'display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12.5px;' +
-      'font-family:inherit;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35)">' + label + "</div>" });
+  const CAT_TILE  = {"명소":"t-see","맛집":"t-food","카페":"t-cafe","번화가":"t-street","숙소":"t-stay","학회":"t-conf","교통":"t-move","휴식":"t-etc"};
+  const mkIcon = (color, label, active) => { const sz = active ? 34 : 30; return L.divIcon({ className:"", iconSize:[sz,sz], iconAnchor:[sz/2,sz/2],
+    html:'<div style="width:' + sz + 'px;height:' + sz + 'px;border-radius:50%;background:' + color + ';color:#fff;' +
+      'display:flex;align-items:center;justify-content:center;font-weight:800;font-size:' + (active?14:12.5) + 'px;' +
+      'font-family:inherit;border:2.5px solid #fff;box-shadow:0 2px ' + (active?12:8) + 'px rgba(0,0,0,' + (active?.45:.35) + ')">' + label + "</div>" }); };
 
   function popupHtml(s){
     let h = '<div class="pop-t">' + (CAT_EMOJI[s.category] || "📍") + " " + esc(s.name) + "</div>";
@@ -204,29 +228,96 @@
     return h;
   }
 
+  /* ── 지도 렌더(마커 레지스트리 + 리스트 연동) ── */
+  let markersById = {}, activeStopId = null;
+  function addMarker(s, color){
+    if (s.lat == null || s.lng == null) return null;
+    const m = L.marker([s.lat, s.lng], { icon: mkIcon(color, String(s.seq), false) }).bindPopup(popupHtml(s)).addTo(layer);
+    markersById[s.id] = { m, color, seq: s.seq };
+    m.on("click", () => focusStop(s.id, { fromMap:true }));
+    return m;
+  }
+  function resetLayer(){ layer.clearLayers(); markersById = {}; activeStopId = null; }
   function renderDay(day, withLine){
-    layer.clearLayers();
+    resetLayer();
     const pts = [];
-    (day.stops || []).forEach(s => {
-      if (s.lat == null || s.lng == null) return;
-      const color = s.region_color || day.color || "#111827";
-      L.marker([s.lat, s.lng], { icon: mkIcon(color, String(s.seq)) }).bindPopup(popupHtml(s)).addTo(layer);
-      pts.push([s.lat, s.lng]);
-    });
+    (day.stops || []).forEach(s => { if (addMarker(s, s.region_color || day.color || "#111827")) pts.push([s.lat, s.lng]); });
     if (withLine && pts.length > 1)
       L.polyline(pts, { color: day.color || "#14b8a6", weight:3.5, opacity:.7, dashArray:"1 7", lineCap:"round" }).addTo(layer);
     if (pts.length) map.fitBounds(pts, { padding:[46,46], maxZoom:15 });
   }
   function renderAll(){
-    layer.clearLayers();
+    resetLayer();
     const pts = [];
-    routeDays.forEach(day => (day.stops||[]).forEach(s => {
-      if (s.lat == null || s.lng == null) return;
-      L.marker([s.lat, s.lng], { icon: mkIcon(day.color || "#111827", String(s.seq)) }).bindPopup(popupHtml(s)).addTo(layer);
-      pts.push([s.lat, s.lng]);
-    }));
+    routeDays.forEach(day => (day.stops||[]).forEach(s => { if (addMarker(s, day.color || "#111827")) pts.push([s.lat, s.lng]); }));
     if (pts.length) map.fitBounds(pts, { padding:[46,46] });
   }
+  function setActiveIcon(id, active){
+    const e = markersById[id]; if (!e) return;
+    e.m.setIcon(mkIcon(active ? "#14b8a6" : e.color, String(e.seq), active));
+    e.m.setZIndexOffset(active ? 1000 : 0);
+  }
+  function focusStop(id, opts){
+    const e = markersById[id]; if (!e) return;
+    if (activeStopId && activeStopId !== id && markersById[activeStopId]) setActiveIcon(activeStopId, false);
+    activeStopId = id; setActiveIcon(id, true);
+    daylist.querySelectorAll(".stop").forEach(r => r.classList.toggle("on", r.dataset.id === id));
+    if (opts && opts.fromMap){
+      const row = daylist.querySelector('.stop[data-id="' + CSS.escape(id) + '"]');
+      if (row) row.scrollIntoView({ block:"nearest", behavior:"smooth" });
+    } else {
+      map.setView(e.m.getLatLng(), Math.max(map.getZoom(), 15), { animate:true });
+      e.m.openPopup();
+      if (isMobile()){ sheet.classList.add("anim"); setSheet(DET.peek, "peek"); }  // 지도가 보이도록 시트 축소
+    }
+  }
+
+  /* ── 일정 리스트 ── */
+  const daylist = $("#daylist");
+  function subFor(s){
+    const bits = [];
+    if (s.hours) bits.push(s.hours);
+    if (s.admission_jpy) bits.push("¥" + Number(s.admission_jpy).toLocaleString());
+    if (!bits.length && s.memo) bits.push(String(s.memo));
+    return bits.join(" · ");
+  }
+  function badgeFor(s){
+    if (s.reservation === "예약필수") return '<span class="badge bg-resv">예약필수</span>';
+    if (s.reservation === "권장" || s.reservation === "예약권장") return '<span class="badge bg-rec">예약 권장</span>';
+    if (s.risk === "reservation_critical") return '<span class="badge bg-resv">★ 필수</span>';
+    if (s.risk === "heat") return '<span class="badge bg-heat">폭염</span>';
+    return "";
+  }
+  function renderDayList(day){
+    daylist.innerHTML = (day.stops || []).map(s => {
+      const tr = s.transport;
+      const transit = tr ? '<div class="transit"><i></i>' + esc([tr.mode, tr.from_prev_min ? tr.from_prev_min + "분" : "", tr.cost_jpy ? "¥" + Number(tr.cost_jpy).toLocaleString() : ""].filter(Boolean).join(" · ")) + "</div>" : "";
+      return transit + '<div class="card stop" data-id="' + esc(s.id) + '">' +
+        '<span class="tm num">' + esc(s.time_start || "") + (s.time_end ? "<br>" + esc(s.time_end) : "") + "</span>" +
+        '<span class="tile ' + (CAT_TILE[s.category] || "t-etc") + '">' + (CAT_EMOJI[s.category] || "📍") + "</span>" +
+        '<div class="bd"><div class="nm">' + esc(s.name) + '</div><div class="sub">' + esc(subFor(s)) + "</div></div>" +
+        badgeFor(s) + "</div>";
+    }).join("");
+  }
+  function renderFoodList(day){
+    daylist.innerHTML = (day.stops || []).map(s =>
+      '<div class="card stop" data-id="' + esc(s.id) + '">' +
+      '<span class="rankb num" style="background:' + esc(s.region_color || "#d35400") + '">' + esc(s.rank || s.seq) + "</span>" +
+      '<div class="bd"><div class="nm">' + esc(s.name) + '</div><div class="sub">' + esc([s.region, String(s.memo || "").replace(/^\[[^\]]*\]\s*/, "")].filter(Boolean).join(" · ")) + "</div></div>" +
+      (s.total ? '<span class="score num">' + esc(s.total) + "</span>" : "") + "</div>").join("");
+  }
+  function renderAllList(){
+    daylist.innerHTML = routeDays.map((d,i) =>
+      '<div class="card dsum" data-day="d' + i + '"><span class="nb num" style="background:' + esc(d.color || "#111827") + '">' + (i+1) + "</span>" +
+      '<div><div class="t">' + esc(d.label || d.date) + '</div><div class="s num">' + esc(d.date) + " · " + (d.stops||[]).length + "곳</div></div>" +
+      '<span class="ar">›</span></div>').join("");
+  }
+  daylist.addEventListener("click", e => {
+    const ds = e.target.closest(".dsum");
+    if (ds){ select(ds.dataset.day); return; }
+    const row = e.target.closest(".stop");
+    if (row) focusStop(row.dataset.id);
+  });
 
   /* ── 날짜 세그먼트 ── */
   const seg = $("#dayseg"), dayinfo = $("#dayinfo");
@@ -237,7 +328,11 @@
     '<button data-k="' + t.key + '"><span class="dot" style="background:' + t.color + '"></span>' + esc(t.label) + "</button>").join("");
 
   function dayInfoHtml(t){
-    if (t.key === "all") return "";
+    if (t.key === "all"){
+      const n = routeDays.reduce((s,d) => s + (d.stops||[]).length, 0);
+      return '<div class="card dayhead"><div class="nbadge">🧭</div><div>' +
+        '<div class="t">전체 동선</div><div class="s num">' + routeDays.length + "일 · " + n + "곳</div></div></div>";
+    }
     if (t.key === "food") return '<div class="card dayhead"><div class="nbadge">🍜</div><div>' +
       '<div class="t">교토 맛집 지도</div><div class="s">' + (t.day.stops||[]).length + "곳 · 점수순 · 지역별 색</div></div></div>";
     const d = t.day;
@@ -249,8 +344,9 @@
     const t = tabs.find(x => x.key === key);
     if (!t) return;
     dayinfo.innerHTML = dayInfoHtml(t);
-    if (t.key === "all") renderAll();
-    else renderDay(t.day, t.key !== "food");
+    if (t.key === "all"){ renderAll(); renderAllList(); }
+    else if (t.key === "food"){ renderDay(t.day, false); renderFoodList(t.day); }
+    else { renderDay(t.day, true); renderDayList(t.day); }
   }
   seg.addEventListener("click", e => { const b = e.target.closest("button"); if (b) select(b.dataset.k); });
   select(routeDays.length ? "d0" : "all");
