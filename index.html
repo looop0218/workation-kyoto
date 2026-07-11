@@ -67,7 +67,7 @@
   .dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + var(--safe-b));z-index:50;
     display:flex;gap:4px;padding:7px;border-radius:24px;background:var(--dock);
     backdrop-filter:saturate(1.7) blur(22px);box-shadow:0 12px 40px -8px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.08);}
-  .dock button{display:flex;flex-direction:column;align-items:center;gap:2px;width:62px;padding:7px 0 6px;
+  .dock button{display:flex;flex-direction:column;align-items:center;gap:2px;width:56px;padding:7px 0 6px;
     border-radius:18px;color:#d4d4d8;font-size:10.5px;font-weight:700;transition:background .2s,color .2s;}
   .dock button .ic{font-size:19px;line-height:1;}
   .dock button.on{background:rgba(255,255,255,.12);color:#fff;}
@@ -80,7 +80,7 @@
   .tile{width:40px;height:40px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;font-size:19px;flex:0 0 auto;}
 
   /* ── 일정: 날짜 세그먼트 ── */
-  .dayseg{display:flex;flex-wrap:wrap;gap:5px;padding:7px 2px 8px;}  /* 스크롤 대신 줄바꿈 — 모든 칩이 한눈에 */
+  .dayseg{display:flex;flex-wrap:wrap;gap:4px;padding:7px 2px 8px;}  /* 스크롤 대신 줄바꿈 — 모든 칩이 한눈에 */
   .dayseg::-webkit-scrollbar{display:none;}
   .dayseg button{flex:0 0 auto;border-radius:999px;padding:6px 10.5px;font-size:12px;font-weight:700;
     background:var(--bg3);color:var(--ink3);display:flex;align-items:center;gap:5px;}
@@ -314,6 +314,7 @@
 
 <nav class="dock">
   <button class="on" data-v="plan"><span class="ic">🗺️</span><span class="lbl">일정</span></button>
+  <button data-v="food"><span class="ic">🍜</span><span class="lbl">맛집</span></button>
   <button data-v="exp"><span class="ic">🧾</span><span class="lbl">경비</span></button>
   <button data-v="bal"><span class="ic">💰</span><span class="lbl">잔액</span></button>
   <button data-v="bk"><span class="ic">🎫</span><span class="lbl">예약</span></button>
@@ -599,7 +600,7 @@
   // 백엔드 재배포 전이면 구버전 서버가 sheet=places를 경비로 폴백 응답 → place 스키마(name 有·cat 無)만 통과시켜 오염 방지
   function placesList(){ return jsonp("action=list&sheet=places&token=" + encodeURIComponent(TOKEN)).then(d => {
     if (d && d.ok && d.items) placeItems = d.items.filter(x => x && x.name != null && x.cat == null); }).catch(() => {}); }
-  function foodIsActive(){ const b = seg.querySelector("button.on"); return b && b.dataset.k === "food"; }
+  function foodIsActive(){ return curTabKey === "food"; }
   function foodEnter(){
     renderFood();
     if (configured()) placesList().then(() => { if (foodIsActive()) renderFood(); });
@@ -642,7 +643,8 @@
   const tabs = [{ key:"all", label:"전체", color:"#111827" }]
     .concat(routeDays.map((d,i) => ({ key:"d"+i, label:(d.dow||"") + " " + Number(d.date.slice(8)), color:d.color, day:d, idx:i })))
     .concat(foodDay ? [{ key:"food", label:"🍴 맛집", color:"#d35400", day:foodDay }] : []);
-  seg.innerHTML = tabs.map(t =>
+  // 맛집은 독(하단 내비)으로 이동 — 날짜 세그에는 전체+요일만
+  seg.innerHTML = tabs.filter(t => t.key !== "food").map(t =>
     '<button data-k="' + t.key + '"><span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.label) + "</button>").join("");
 
   function dayInfoHtml(t){
@@ -657,15 +659,21 @@
     return '<div class="card dayhead"><div class="nbadge num">' + (t.idx+1) + "</div><div>" +
       '<div class="t">' + esc(d.label || d.date) + '</div><div class="s num">' + esc(d.date) + " · " + (d.stops||[]).length + "곳</div></div></div>";
   }
+  let curTabKey = null, lastDayKey = "all";
   function select(key){
-    seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.k === key));
     const t = tabs.find(x => x.key === key);
     if (!t) return;
+    curTabKey = key;
+    if (key !== "food") lastDayKey = key;
+    seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.k === key));
     dayinfo.innerHTML = dayInfoHtml(t);
     if (t.key === "all"){ renderAll(); renderAllList(); }
     else if (t.key === "food"){ foodEnter(); if (isMobile()){ sheet.classList.add("anim"); setSheet(DET.full, "full"); } }  // 필터·리스트 탐색 공간 확보
     else { renderDay(t.day, true); renderDayList(t.day); }
     $("#food-fab").style.display = (t.key === "food" && configured()) ? "flex" : "none";
+    // 독 활성 동기화: 일정 뷰 안에서 날짜↔맛집 전환 시 하단 내비도 따라감
+    if ($("#v-plan").style.display !== "none")
+      document.querySelectorAll(".dock button").forEach(x => x.classList.toggle("on", x.dataset.v === (key === "food" ? "food" : "plan")));
   }
   seg.addEventListener("click", e => { const b = e.target.closest("button"); if (b) select(b.dataset.k); });
   // 여행 중이면 오늘 날짜 탭을 기본 선택
@@ -676,15 +684,18 @@
   /* ── 독 라우팅 ── */
   const views = { plan:"v-plan", exp:"v-exp", bal:"v-bal", bk:"v-bk" };
   document.querySelectorAll(".dock button").forEach(b => b.addEventListener("click", () => {
+    const v = b.dataset.v;
     document.querySelectorAll(".dock button").forEach(x => x.classList.toggle("on", x === b));
-    Object.entries(views).forEach(([k,id]) => { $("#" + id).style.display = (k === b.dataset.v ? "" : "none"); });
-    if (isMobile()) { sheet.classList.add("anim"); const plan = b.dataset.v === "plan"; setSheet(plan ? DET.half : DET.full, plan ? "half" : "full"); }
-    $("#fab").style.display = (b.dataset.v === "exp") ? "flex" : "none";
-    // 맛집 탭이 활성인 채로 일정 뷰에 돌아오면 맛집 FAB 복원, 그 외 뷰에선 숨김
-    $("#food-fab").style.display = (b.dataset.v === "plan" && foodIsActive() && configured()) ? "flex" : "none";
-    if (b.dataset.v === "exp") expEnter();
-    if (b.dataset.v === "bal") balEnter();
-    if (b.dataset.v === "bk") bkEnter();
+    const shown = (v === "food") ? "plan" : v;                    // 맛집은 일정 뷰(지도+시트) 공유 모드
+    Object.entries(views).forEach(([k,id]) => { $("#" + id).style.display = (k === shown ? "" : "none"); });
+    if (isMobile()) { sheet.classList.add("anim"); const half = (v === "plan"); setSheet(half ? DET.half : DET.full, half ? "half" : "full"); }
+    $("#fab").style.display = (v === "exp") ? "flex" : "none";
+    if (v !== "food") $("#food-fab").style.display = "none";
+    if (v === "food") select("food");
+    else if (v === "plan" && curTabKey === "food") select(lastDayKey);   // 맛집 → 일정: 보던 날짜 복원
+    if (v === "exp") expEnter();
+    if (v === "bal") balEnter();
+    if (v === "bk") bkEnter();
   }));
 
   /* ── 시트 드래그(모바일): 디텐트 3단 스냅 ── */
