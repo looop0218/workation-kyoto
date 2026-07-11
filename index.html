@@ -125,7 +125,9 @@
   .fb-cand{background:var(--accent-soft);color:var(--accent-ink);}
   .foundby{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--muted);}
   .foundby .av{width:16px;height:16px;font-size:8px;border-width:1.5px;margin-left:0;}
-  .foodbar{display:flex;align-items:center;gap:8px;padding:2px 2px 10px;}
+  .foodbar{display:flex;align-items:center;gap:7px;padding:2px 2px 8px;overflow-x:auto;scrollbar-width:none;}
+  .foodbar::-webkit-scrollbar{display:none;}
+  .foodbar .seg{flex:0 0 auto;}
   .secthead{display:flex;align-items:center;gap:7px;padding:14px 4px 8px;}
   .secthead .cap{margin:0;} .secthead i{flex:1;height:1px;background:var(--line);}
   .rankb.cand{background:var(--accent-soft)!important;color:var(--accent-ink);border:1.5px dashed var(--accent);}
@@ -537,17 +539,56 @@
       '<div class="sub">' + esc([p.region, p.memo].filter(Boolean).join(" · ")) + "</div>" +
       '<div class="fbadges"><span class="badge fb-cand">후보</span>' + found + "</div></div></div>";
   }
-  function renderFood(){
-    renderDay(foodDay, false);
+  /* 정렬·필터 상태 */
+  let foodSort = "rank", foodRegion = "all", foodTags = [];
+  const FOOD_SORTS = [["rank","총점"],["taste","맛"],["grp","4인"],["resv","예약"]];
+  const FOOD_TAGS = [["아침","아침"],["점심","점심"],["저녁","저녁"],["심야","심야"],["회식","회식"],["실내","실내"],["nowait","웨이팅✕"]];
+  const bracketOf = s => { const m = String(s.memo || "").match(/^\[([^\]]*)\]/); return m ? m[1] : ""; };
+  const foodRegions = (() => { const seen = [];
+    (foodDay ? foodDay.stops || [] : []).forEach(s => { if (s.region && !seen.some(x => x.name === s.region)) seen.push({ name:s.region, color:s.region_color || "#d35400" }); });
+    return seen; })();
+  function foodFiltered(){
+    let list = (foodDay.stops || []).slice();
+    if (foodRegion !== "all") list = list.filter(s => s.region === foodRegion);
+    foodTags.forEach(t => {
+      if (t === "실내") list = list.filter(s => (s.badges || []).indexOf("실내") >= 0);
+      else if (t === "nowait") list = list.filter(s => (s.badges || []).indexOf("웨이팅") < 0);
+      else list = list.filter(s => bracketOf(s).indexOf(t) >= 0);
+    });
+    const sc = i => s => Number((s.scores || [])[i] || 0);
+    if (foodSort === "taste") list.sort((a,b) => sc(2)(b) - sc(2)(a) || b.total - a.total);
+    else if (foodSort === "grp") list.sort((a,b) => sc(3)(b) - sc(3)(a) || b.total - a.total);
+    else if (foodSort === "resv") list.sort((a,b) => sc(5)(b) - sc(5)(a) || b.total - a.total);
+    else list.sort((a,b) => (a.rank || 999) - (b.rank || 999));
+    return list;
+  }
+  function renderFoodMap(list){
+    resetLayer();
+    const pts = [];
+    list.forEach(s => { if (addMarker(s, s.region_color || (foodDay && foodDay.color) || "#111827")) pts.push([s.lat, s.lng]); });
     addPlaceMarkers();
+    if (pts.length) map.fitBounds(pts, { padding:[46,46], maxZoom:15 });
+  }
+  function renderFood(){
+    const flt = foodFiltered();
+    renderFoodMap(foodFilter === "team" ? [] : flt);
     const n = placeItems.length;
     let h = '<div class="foodbar"><div class="seg" id="foodseg">' +
       '<button class="' + (foodFilter === "all" ? "on" : "") + '" data-ff="all">전체</button>' +
-      '<button class="' + (foodFilter === "team" ? "on" : "") + '" data-ff="team">팀추천' + (n ? (" " + n) : "") + "</button></div></div>";
+      '<button class="' + (foodFilter === "team" ? "on" : "") + '" data-ff="team">팀추천' + (n ? (" " + n) : "") + "</button></div>" +
+      (foodFilter === "all" ? '<div class="seg">' + FOOD_SORTS.map(x =>
+        '<button class="' + (foodSort === x[0] ? "on" : "") + '" data-fs="' + x[0] + '">' + x[1] + "</button>").join("") + "</div>" : "") +
+      "</div>";
     if (foodFilter === "team"){
       h += n ? placeItems.map(placeRow).join("") : '<div class="card empty2">팀원이 추가한 맛집이 아직 없어요.<br>오른쪽 아래 ＋ 맛집 추가로 시작하세요.</div>';
     } else {
-      h += (foodDay.stops || []).map(foodRow).join("");
+      h += '<div class="dayseg"><button class="' + (foodRegion === "all" ? "on" : "") + '" data-fr="all">전지역</button>' +
+        foodRegions.map(r => '<button class="' + (foodRegion === r.name ? "on" : "") + '" data-fr="' + esc(r.name) + '">' +
+          '<span class="dot" style="background:' + esc(r.color) + '"></span>' + esc(r.name) + "</button>").join("") + "</div>";
+      h += '<div class="dayseg">' + FOOD_TAGS.map(t =>
+        '<button class="' + (foodTags.indexOf(t[0]) >= 0 ? "on" : "") + '" data-ft="' + t[0] + '">' + t[1] + "</button>").join("") +
+        '<span class="cap num" style="align-self:center;padding:0 5px;flex:0 0 auto">' + flt.length + "곳</span></div>";
+      h += flt.length ? flt.map(foodRow).join("") : '<div class="card empty2">조건에 맞는 맛집이 없습니다 — 필터를 풀어보세요.</div>';
       if (n){ h += '<div class="secthead"><span class="cap">팀 발굴 후보 ' + n + '</span><i></i></div>' + placeItems.map(placeRow).join(""); }
     }
     daylist.innerHTML = h;
@@ -581,6 +622,12 @@
     if (ds){ select(ds.dataset.day); return; }
     const ff = e.target.closest("[data-ff]");
     if (ff){ foodFilter = ff.dataset.ff; renderFood(); return; }
+    const fs = e.target.closest("[data-fs]");
+    if (fs){ foodSort = fs.dataset.fs; renderFood(); return; }
+    const fr = e.target.closest("[data-fr]");
+    if (fr){ foodRegion = fr.dataset.fr; renderFood(); return; }
+    const ft = e.target.closest("[data-ft]");
+    if (ft){ const t = ft.dataset.ft, i = foodTags.indexOf(t); if (i >= 0) foodTags.splice(i, 1); else foodTags.push(t); renderFood(); return; }
     const pl = e.target.closest("[data-place]");
     if (pl){ const p = placeItems.find(x => String(x.id) === pl.dataset.place); if (p) openPdlg(p); return; }
     const row = e.target.closest(".stop");
