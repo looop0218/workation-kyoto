@@ -18,6 +18,7 @@
  *       토큰별 사용 추적("seen" 행, 시간당 1회) → 로테이션 전 구토큰 트래픽을 로그 시트에서 확인.
  *   (4) cleanupOrphanFiles(): 시트 미참조 영수증·예약문서 파일 휴지통 이동(편집기 수동 실행).
  *   (5) sheet 라우팅(expenses 폴백)·upload/receipt/충전·보안 가드(크기 컷·마스킹·덮어쓰기 방지) 전부 보존.
+ *   (6) 맛집후보(places) 시트 추가 — 팀원 발굴 맛집 수집(sheet=places, list/add/update/delete, 소프트삭제·감사로그 동일 패턴).
  *  ────────────────────────────────────────────────────────────────────────
  */
 
@@ -54,6 +55,14 @@ var BK_TYPES   = ["flight","hotel","train"];
 var BK_URL_RE  = /^https?:\/\//i;                                          // voucherUrl/mapUrl: http(s)만 허용
 var BK_LEN     = { title:120, sub:120, detail:200, memo:300 };             // 필드 길이컷
 
+/* ── 맛집후보(places) 시트: 팀원 발굴 맛집 수집 ──
+ *  헤더: id | name | region | lat | lng | foundBy | url | memo | status | ts | deleted
+ *  status ∈ {candidate(기본, 미채점), scored}. 좌표는 일본 범위 밖이면 저장 안 함(리스트 전용).
+ */
+var PL_SHEET   = "맛집후보";
+var PL_HEADERS = ["id","name","region","lat","lng","foundBy","url","memo","status","ts"];
+var PL_LEN     = { name:80, region:40, memo:200 };
+
 /* ── 예약 첨부 문서(booking-docs) ──
  *  ★★★ 아래 BK_DOCS_FOLDER_ID 에 드라이브 폴더 ID를 붙여넣으세요. ★★★
  *    - 그 폴더는 팀원 4명 구글계정에 "뷰어"로만 공유(일반 액세스=제한됨, '링크가 있는 모든 사용자' 금지).
@@ -80,7 +89,9 @@ function _out(obj, cb){
 }
 
 // sheet 파라미터 정규화: 미지정/미상 → "expenses"(하위호환 사수)
-function _route(v){ return (String(v||"") === "bookings") ? "bookings" : "expenses"; }
+function _route(v){ v = String(v||""); return (v === "bookings" || v === "places") ? v : "expenses"; }
+// 숫자 범위 검증(밖이면 "" 반환 → 저장 안 함)
+function _numRange(v, lo, hi){ var n = Number(v); return (n >= lo && n <= hi) ? n : ""; }
 
 /* ── 감사로그("로그" 시트) — 로그 실패가 본 동작을 깨지 않도록 전부 try/catch ── */
 var LOG_SHEET_NAME = "로그";
@@ -317,6 +328,73 @@ function _bookingsPost(d){
   return _out({ok:false, error:"bad action"});
 }
 
+/* ───────────────────────── 맛집후보(places) ───────────────────────── */
+
+function _plSheet(){
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(PL_SHEET);
+  if(!sh){ sh = ss.insertSheet(PL_SHEET); sh.appendRow(PL_HEADERS.concat(["deleted"])); return sh; }
+  if(String(sh.getRange(1, PL_HEADERS.length+1).getValue()) === ""){ sh.getRange(1, PL_HEADERS.length+1).setValue("deleted"); }  // 소프트삭제 컬럼(11열) 보강
+  return sh;
+}
+function _plItems(){
+  var v = _plSheet().getDataRange().getValues(), out = [];
+  // 열: 0 id|1 name|2 region|3 lat|4 lng|5 foundBy|6 url|7 memo|8 status|9 ts|10 deleted
+  for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[10]) continue;   // 소프트삭제 행 제외
+    out.push({ id:String(r[0]), name:String(r[1]||""), region:String(r[2]||""),
+               lat:(r[3]===""||r[3]==null)?null:Number(r[3]), lng:(r[4]===""||r[4]==null)?null:Number(r[4]),
+               foundBy:String(r[5]||""), url:String(r[6]||""), memo:String(r[7]||""), status:String(r[8]||"candidate") });
+  }
+  return out;
+}
+
+// 맛집후보: GET(list)
+function _placesGet(p, cb){ return _out({ok:true, items:_plItems()}, cb); }
+
+// 맛집후보: POST(add/update/delete)
+function _placesPost(d){
+  var sh = _plSheet();
+
+  if(d.action === "list"){ return _out({ok:true, items:_plItems()}); }
+
+  if(d.action === "add" || d.action === "update"){
+    var en = d.entry || {};
+    var id = String(en.id||""); if(!id) return _out({ok:false, error:"bad id"});
+    var name = String(en.name||"").slice(0, PL_LEN.name); if(!name) return _out({ok:false, error:"bad name"});
+    var region  = String(en.region||"").slice(0, PL_LEN.region);
+    var lat = _numRange(en.lat, 24, 46);       // 일본 위도
+    var lng = _numRange(en.lng, 122, 154);     // 일본 경도
+    if(lat === "" || lng === ""){ lat = ""; lng = ""; }  // 한쪽만 있으면 둘 다 버림(마커 불가)
+    var foundBy = String(en.foundBy||"").slice(0, 12);
+    var url  = BK_URL_RE.test(String(en.url||"")) ? String(en.url).slice(0,2000) : "";  // http(s)만
+    var memo = String(en.memo||"").slice(0, PL_LEN.memo);
+    var status = (String(en.status||"") === "scored") ? "scored" : "candidate";
+    var row = [id, name, region, lat, lng, foundBy, url, memo, status, new Date()];
+    var v = sh.getDataRange().getValues();
+    for(var i=1;i<v.length;i++){
+      if(v[i][10]) continue;                                                // 소프트삭제 행은 없는 것으로(부활 방지)
+      if(String(v[i][0]) === id){ sh.getRange(i+1,1,1,row.length).setValues([row]); _audit(d.action,"places",id,d.token,name); return _out({ok:true, id:id}); }
+    }
+    if(d.action === "update") return _out({ok:false, error:"not found"});
+    sh.appendRow(row); _audit("add","places",id,d.token,name+(foundBy?(" ·"+foundBy):"")); return _out({ok:true, id:id});
+  }
+
+  if(d.action === "delete"){
+    var v2 = sh.getDataRange().getValues();
+    for(var j=1;j<v2.length;j++){
+      if(v2[j][10]) continue;
+      if(String(v2[j][0]) === String(d.id)){
+        sh.getRange(j+1, PL_HEADERS.length+1).setValue(1);
+        _audit("delete","places",d.id,d.token, String(v2[j][1]));
+        return _out({ok:true});
+      }
+    }
+    return _out({ok:false, error:"not found"});
+  }
+
+  return _out({ok:false, error:"bad action"});
+}
+
 /* ───────────────────────── 엔트리포인트 ───────────────────────── */
 
 function doGet(e){
@@ -326,6 +404,7 @@ function doGet(e){
   try {
     // sheet 미지정 시 "expenses"로 폴백 → 기존 경비/잔액/영수증 호출(sheet 없이 옴) 안 깨짐
     if(_route(p.sheet) === "bookings") return _bookingsGet(p, cb);
+    if(_route(p.sheet) === "places") return _placesGet(p, cb);
     return _expensesGet(p, cb);
   } catch(err){ try{ console.error(err); }catch(e2){} return _out({ok:false, error:"server error"}, cb); }
 }
@@ -339,6 +418,7 @@ function doPost(e){
   try {
     // sheet 미지정 시 "expenses"로 폴백(하위호환 사수)
     if(_route(d.sheet) === "bookings") return _bookingsPost(d);
+    if(_route(d.sheet) === "places") return _placesPost(d);
     return _expensesPost(d);
   } catch(err){ try{ console.error(err); }catch(e5){} return _out({ok:false, error:"server error"}); }
   finally { try{ lock.releaseLock(); }catch(eRel){} }
