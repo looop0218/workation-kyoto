@@ -250,6 +250,7 @@
 <header class="appbar">
   <div class="ttl" id="trip-ttl">여행</div>
   <span class="datechip num" id="trip-dates"></span>
+  <span id="trip-links" style="display:flex;gap:5px"></span>
   <a class="v2chip" href="v1-legacy.html" title="구버전으로" style="text-decoration:none">V2</a>
   <div class="avstack" id="trip-avs"></div>
 </header>
@@ -384,6 +385,9 @@
   }
   $("#trip-avs").innerHTML = MEMBERS.map((m,i) =>
     '<span class="av" style="background:' + AV_COLORS[i % AV_COLORS.length] + '">' + esc(String(m).slice(0,1)) + "</span>").join("");
+  /* 트립 외부 링크(노션 등) — v1 헤더 trip-links 이식, http(s)만 허용 */
+  $("#trip-links").innerHTML = (trip.links || []).filter(l => /^https?:\/\//i.test(String((l && l.url) || ""))).map(l =>
+    '<a class="datechip" target="_blank" rel="noopener noreferrer" href="' + esc(l.url) + '" title="' + esc(l.label || "링크") + '" aria-label="' + esc(l.label || "링크") + '" style="text-decoration:none">' + esc(l.icon || "🔗") + "</a>").join("");
 
   /* ── 지도 ── */
   const map = L.map("map", { zoomControl:false }).setView([34.99, 135.76], 12);
