@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8fafc">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗾</text></svg>">
 <title>교토·오사카 워케이션</title>
 <link rel="preload" href="vendor/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
@@ -248,7 +250,7 @@
 <header class="appbar">
   <div class="ttl" id="trip-ttl">여행</div>
   <span class="datechip num" id="trip-dates"></span>
-  <span class="v2chip">V2 BETA</span>
+  <a class="v2chip" href="index.html" title="구버전으로" style="text-decoration:none">V2 BETA</a>
   <div class="avstack" id="trip-avs"></div>
 </header>
 
@@ -385,15 +387,16 @@
 
   /* ── 지도 ── */
   const map = L.map("map", { zoomControl:false }).setView([34.99, 135.76], 12);
+  map.attributionControl.setPosition("topright");   // 하단은 시트·독에 가려짐
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:"&copy; OpenStreetMap" }).addTo(map);
   let layer = L.layerGroup().addTo(map);
 
   const CAT_EMOJI = {"명소":"🏯","맛집":"🍜","카페":"☕","번화가":"🏮","숙소":"🏨","학회":"🎓","교통":"🚆","휴식":"😴"};
   const CAT_TILE  = {"명소":"t-see","맛집":"t-food","카페":"t-cafe","번화가":"t-street","숙소":"t-stay","학회":"t-conf","교통":"t-move","휴식":"t-etc"};
   const mkIcon = (color, label, active) => { const sz = active ? 34 : 30; return L.divIcon({ className:"", iconSize:[sz,sz], iconAnchor:[sz/2,sz/2],
-    html:'<div style="width:' + sz + 'px;height:' + sz + 'px;border-radius:50%;background:' + color + ';color:#fff;' +
+    html:'<div style="width:' + sz + 'px;height:' + sz + 'px;border-radius:50%;background:' + esc(color) + ';color:#fff;' +
       'display:flex;align-items:center;justify-content:center;font-weight:800;font-size:' + (active?14:12.5) + 'px;' +
-      'font-family:inherit;border:2.5px solid #fff;box-shadow:0 2px ' + (active?12:8) + 'px rgba(0,0,0,' + (active?.45:.35) + ')">' + label + "</div>" }); };
+      'font-family:inherit;border:2.5px solid #fff;box-shadow:0 2px ' + (active?12:8) + 'px rgba(0,0,0,' + (active?.45:.35) + ')">' + esc(String(label)) + "</div>" }); };
 
   function popupHtml(s){
     let h = '<div class="pop-t">' + (CAT_EMOJI[s.category] || "📍") + " " + esc(s.name) + "</div>";
@@ -500,7 +503,7 @@
     .concat(routeDays.map((d,i) => ({ key:"d"+i, label:(d.dow||"") + " " + Number(d.date.slice(8)), color:d.color, day:d, idx:i })))
     .concat(foodDay ? [{ key:"food", label:"🍴 맛집", color:"#d35400", day:foodDay }] : []);
   seg.innerHTML = tabs.map(t =>
-    '<button data-k="' + t.key + '"><span class="dot" style="background:' + t.color + '"></span>' + esc(t.label) + "</button>").join("");
+    '<button data-k="' + t.key + '"><span class="dot" style="background:' + esc(t.color) + '"></span>' + esc(t.label) + "</button>").join("");
 
   function dayInfoHtml(t){
     if (t.key === "all"){
@@ -524,7 +527,10 @@
     else { renderDay(t.day, true); renderDayList(t.day); }
   }
   seg.addEventListener("click", e => { const b = e.target.closest("button"); if (b) select(b.dataset.k); });
-  select(routeDays.length ? "d0" : "all");
+  // 여행 중이면 오늘 날짜 탭을 기본 선택
+  const _t = new Date(), _ts = _t.getFullYear() + "-" + String(_t.getMonth()+1).padStart(2,"0") + "-" + String(_t.getDate()).padStart(2,"0");
+  const _ti = routeDays.findIndex(d => d.date === _ts);
+  select(_ti >= 0 ? "d" + _ti : (routeDays.length ? "d0" : "all"));
 
   /* ── 독 라우팅 ── */
   const views = { plan:"v-plan", exp:"v-exp", bal:"v-bal", bk:"v-bk" };
@@ -789,7 +795,12 @@
   function rcState(){
     const st = $("#e-rc-st");
     if (rcFile) st.textContent = rcFile.name.slice(0,26) + " (저장 시 업로드)";
-    else if (draft && draft.receipt) st.innerHTML = '<a href="' + esc(draft.receipt) + '" target="_blank" rel="noopener noreferrer">🧾 첨부됨 · 보기</a>';
+    else if (draft && draft.receipt){
+      // 스킴 화이트리스트 — 시트 값이 곧 링크가 되므로 drive/docs 외에는 텍스트로만 (v1 정책 복원)
+      if (/^https:\/\/(drive|docs)\.google\.com\//.test(String(draft.receipt)))
+        st.innerHTML = '<a href="' + esc(draft.receipt) + '" target="_blank" rel="noopener noreferrer">🧾 첨부됨 · 보기</a>';
+      else st.textContent = "🧾 첨부됨";
+    }
     else st.textContent = "";
   }
   function conv(){ const j = num($("#e-amt").value); $("#e-conv").textContent = j ? ("≈ ₩" + fmt(jKrw(j)) + " / $" + jUsd(j).toFixed(2)) : ""; }
@@ -896,7 +907,10 @@
   $("#exp-refresh").addEventListener("click", () => { const rb = $("#exp-refresh"); rb.style.opacity = .45;
     refresh().then(() => { rb.style.opacity = 1; renderExp(); toast("새로고침됨"); }); });
   $("#fab").addEventListener("click", () => openDlg(null));
-  function expEnter(){ loadCacheE(); renderExp(); refresh().then(() => { if (expVisible()) renderExp(); }); }
+  function expEnter(){ loadCacheE();
+    if (entries.length) renderExp();
+    else expBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
+    refresh().then(() => { if (expVisible()) renderExp(); }); }
 
   /* ═══════════ 잔액·환율(V4) — 경비 데이터 재사용 ═══════════ */
   const balBody = $("#bal-body");
@@ -910,7 +924,7 @@
     const bal = charge - spend, pct = charge > 0 ? Math.round(spend/charge*100) : 0;
     let h = '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
       '<div class="s num">' + (charge > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(bal)) + " · 환율 " +
-      (fxLive ? "실시간" : "기본(" + String(FXD2.updated || "내장").replace(" (실시간)", "") + ")") + "</div>" +
+      (fxLive ? "실시간" : "기본(" + esc(String(FXD2.updated || "내장").replace(" (실시간)", "")) + ")") + "</div>" +
       '<div class="gauge"><i style="width:' + Math.min(Math.max(pct,0),100) + '%"></i></div></div>';
     h += '<div class="statrow"><div class="card"><div class="cap">충전 누적</div><div class="v num">¥' + fmt(charge) + '</div></div>' +
       '<div class="card"><div class="cap">사용 누적</div><div class="v num">¥' + fmt(spend) + "</div></div></div>";
@@ -940,7 +954,11 @@
     const row = ev.target.closest(".erow");
     if (row){ const e = entries.find(x => String(x.id) === row.dataset.id); if (e) openDlg(e); }
   });
-  function balEnter(){ loadCacheE(); renderBal(); fxSync(); refresh().then(() => { if (balVisible()) renderBal(); }); }
+  function balEnter(){ loadCacheE();
+    if (entries.length) renderBal();
+    else balBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
+    fxSync();
+    refresh().then(() => { if (balVisible()) renderBal(); }); }
 
   /* 환율 위젯(¥↔₩ 양방향) */
   const fxJI = $("#fx-j"), fxKI = $("#fx-k");
@@ -959,7 +977,11 @@
   const bkBody = $("#bk-body");
   let bkItems = [], bkFilter = "all", bkBusy = false;
   const bkVisible = () => $("#v-bk").style.display !== "none";
-  function bkParseAtt(s){ try { const a = JSON.parse(String(s || "[]")); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+  function bkParseAtt(s){ try { const a = JSON.parse(String(s || "[]")); return Array.isArray(a) ? a.filter(x => x && x.fileId) : []; } catch(e){ return []; } }
+  const fmtDt = s => { s = String(s || ""); const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/);
+    if (!m) return s;
+    const d2 = new Date(m[1] + "-" + m[2] + "-" + m[3] + "T00:00:00");
+    return (+m[2]) + "/" + (+m[3]) + " (" + DOW[d2.getDay()] + ")" + (m[4] ? " " + m[4] : ""); };
   function bkList(){ return jsonp("action=list&sheet=bookings&token=" + encodeURIComponent(TOKEN)).then(d => {
     if (d && d.ok && d.items) bkItems = d.items; }).catch(() => {}); }
   function renderBk(){
@@ -969,17 +991,20 @@
     bkBody.innerHTML = list.map(e => {
       const t = BK[e.type] || { emo:"🎫", lbl:e.type, tile:"t-etc" };
       const atts = bkParseAtt(e.attachments);
-      const chips = atts.map(a => '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + esc(a.fileId) + '/view">' +
+      const chips = atts.map(a => '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + encodeURIComponent(a.fileId) + '/view">' +
         (String(a.mime).indexOf("pdf") >= 0 ? "📄" : "🖼") + " " + (a.size ? Math.max(1, Math.round(a.size/1024)) + "KB" : "보기") + "</a>").join("");
       const vch = /^https?:\/\//i.test(String(e.voucherUrl || "")) ? '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="' + esc(e.voucherUrl) + '">🔗 바우처</a>' : "";
-      const dt = String(e.datetime || "").replace("T", " ");
+      const dt = fmtDt(e.datetime);
       return '<div class="card bkrow" data-id="' + esc(e.id) + '"><span class="tile ' + t.tile + '">' + t.emo + "</span>" +
         '<div class="bd"><div class="nm">' + esc(e.title || t.lbl) + "</div>" +
         '<div class="sub num">' + esc([dt, e.sub].filter(Boolean).join(" · ")) + "</div>" +
         ((chips || vch) ? '<div class="chips">' + vch + chips + "</div>" : "") + "</div></div>";
     }).join("");
   }
-  function bkEnter(){ renderBk(); bkList().then(() => { if (bkVisible()) renderBk(); }); }
+  function bkEnter(){
+    if (bkItems.length) renderBk();
+    else bkBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
+    bkList().then(() => { if (bkVisible()) renderBk(); }); }
   bkBody.addEventListener("click", ev => {
     if (ev.target.closest("[data-rc]")) return;
     const row = ev.target.closest(".bkrow");
@@ -1039,7 +1064,7 @@
   let bEditing = null, bDraft = null, bPend = [];
   function battRender(){
     const ex = bDraft.atts.map((a,i) => '<div class="attitem">' + (String(a.mime).indexOf("pdf") >= 0 ? "📄" : "🖼") +
-      ' <a target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + esc(a.fileId) + '/view">기존 첨부 ' + (i+1) + "</a>" +
+      ' <a target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + encodeURIComponent(a.fileId) + '/view">기존 첨부 ' + (i+1) + "</a>" +
       (a.size ? ' <span style="color:var(--muted)">' + Math.max(1, Math.round(a.size/1024)) + "KB</span>" : "") +
       '<span class="x" data-ex="' + i + '">✕</span></div>').join("");
     const pd = bPend.map((f,i) => '<div class="attitem">📎 ' + esc(f.name.slice(0,24)) + ' <span style="color:var(--muted)">(저장 시 업로드)</span><span class="x" data-pd="' + i + '">✕</span></div>').join("");
@@ -1093,8 +1118,9 @@
       const okAtts = results.filter(Boolean);
       const failed = results.length - okAtts.length;
       btn.textContent = "저장 중…";
+      const vu = $("#b-url").value.trim();
       const entry = { id, type:bDraft.type, title, datetime: $("#b-dt").value || bDraft.datetime || "", sub: $("#b-sub").value,
-        detail: bDraft.detail, voucherUrl: $("#b-url").value, mapUrl: bDraft.mapUrl, memo: $("#b-memo").value,
+        detail: bDraft.detail, voucherUrl: /^https?:\/\//i.test(vu) ? vu.slice(0,2000) : "", mapUrl: bDraft.mapUrl, memo: $("#b-memo").value,
         attachments: JSON.stringify(bDraft.atts.concat(okAtts)) };
       return postEntry({ action: bEditing ? "update" : "add", token:TOKEN, sheet:"bookings", entry }).then(r => {
         if (r && r.ok === false){ finish(false, r.error === "not found" ? "이미 삭제된 예약 — 새로고침 후 다시 시도" : "저장 거부" + (r.error ? ": " + r.error : "")); return; }
@@ -1112,6 +1138,13 @@
     postEntry({ action:"delete", token:TOKEN, sheet:"bookings", id:bEditing }).then(() => bkList()).then(() => {
       bkBusy = false; btn.textContent = "삭제"; bdlg.classList.remove("open"); renderBk(); toast("삭제됨");
     }).catch(() => { bkBusy = false; btn.textContent = "삭제"; toast("삭제 실패"); });
+  });
+
+  /* ESC로 다이얼로그 닫기(데스크톱) */
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    if (edlg.classList.contains("open") && !busy) edlg.classList.remove("open");
+    if (bdlg.classList.contains("open") && !bkBusy) bdlg.classList.remove("open");
   });
 })();
 </script>
