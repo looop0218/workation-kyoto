@@ -135,6 +135,9 @@
   .secthead .cap{margin:0;} .secthead i{flex:1;height:1px;background:var(--line);}
   .rankb.cand{background:var(--accent-soft)!important;color:var(--accent-ink);border:1.5px dashed var(--accent);}
   .stop.ovl{border-color:var(--accent);background:linear-gradient(0deg,var(--accent-soft) 0%,transparent 60%);}
+  .stop.hid{opacity:.45;}
+  .stop.hid .nm{text-decoration:line-through;}
+  .fb-hid{background:var(--bg3);color:var(--muted);}
   .stop .ovledit{align-self:center;flex:0 0 auto;color:var(--accent-ink);font-size:14px;font-weight:800;padding:0 3px;}
   .addplan{align-self:center;flex:0 0 auto;border:.6px solid var(--accent);color:var(--accent-ink);background:var(--accent-soft);
     border-radius:999px;padding:5px 9px;font-size:10.5px;font-weight:800;white-space:nowrap;}
@@ -347,7 +350,7 @@
       <input id="i-memo" type="text" maxlength="200" placeholder="예: 아케이드·길거리 먹거리">
       <input type="hidden" id="i-lat"><input type="hidden" id="i-lng">
       <div class="conv" id="i-geo"></div>
-      <div class="dlgbtns"><button class="del" id="i-del" style="display:none">삭제</button><button class="cta" id="i-save">저장</button></div>
+      <div class="dlgbtns"><button class="del" id="i-del" style="display:none">삭제</button><button class="del" id="i-hide" style="display:none">숨기기</button><button class="cta" id="i-save">저장</button></div>
     </div>
   </div>
 </div>
@@ -501,10 +504,25 @@
     m.on("click", () => focusStop(p.id, { fromMap:true }));
     return m;
   }
+  // 정적 항목 오버라이드: ov_<원본id> 레코드가 있으면 병합, category "숨김"이면 제외
+  const ovFor = sid => (planItems || []).find(p => p.id === "ov_" + sid);
+  function mergeOv(s, ov){
+    const m = Object.assign({}, s);
+    if (ov.time){ m.time_start = ov.time; m.time_end = ""; }
+    if (ov.name) m.name = ov.name;
+    if (ov.memo){ m.memo = ov.memo; m.hours = ""; m.admission_jpy = null; }
+    if (ov.category && ov.category !== "숨김") m.category = ov.category;
+    return m;
+  }
   function renderDay(day, withLine){
     resetLayer();
     const pts = [];
-    (day.stops || []).forEach(s => { if (addMarker(s, s.region_color || day.color || "#111827")) pts.push([s.lat, s.lng]); });
+    (day.stops || []).forEach(s => {
+      const ov = ovFor(s.id);
+      if (ov && ov.category === "숨김") return;                       // 숨김: 지도·동선에서 제외
+      const ms = ov ? mergeOv(s, ov) : s;
+      if (addMarker(ms, s.region_color || day.color || "#111827")) pts.push([ms.lat, ms.lng]);
+    });
     planForDate(day.date).forEach(p => { if (addPlanMarker(p)) pts.push([p.lat, p.lng]); });
     if (withLine && pts.length > 1)
       L.polyline(pts, { color: day.color || "#14b8a6", weight:3.5, opacity:.7, dashArray:"1 7", lineCap:"round" }).addTo(layer);
@@ -554,7 +572,7 @@
   }
   const padT = t => { const m = String(t || "").match(/^(\d{1,2}):(\d{2})$/); return m ? (m[1].padStart(2,"0") + ":" + m[2]) : ""; };
   function planForDate(date){
-    return (planItems || []).filter(p => p.date === date).map(p => ({
+    return (planItems || []).filter(p => p.date === date && p.id.indexOf("ov_") !== 0).map(p => ({
       id:p.id, _ov:true, seq:"＋", time_start:p.time || "", name:p.name,
       lat:p.lat, lng:p.lng, memo:p.memo, category:p.category || "기타", createdBy:p.createdBy }));
   }
@@ -568,20 +586,27 @@
       '<div class="fbadges"><span class="badge fb-cand">추가</span>' + who + "</div></div>" +
       '<span class="ovledit">✎</span></div>';
   }
-  function staticRow(s){
+  function staticRow(s, state){
     const tr = s.transport;
     const transit = tr ? '<div class="transit"><i></i>' + esc([tr.mode, tr.from_prev_min ? tr.from_prev_min + "분" : "", tr.cost_jpy ? "¥" + Number(tr.cost_jpy).toLocaleString() : ""].filter(Boolean).join(" · ")) + "</div>" : "";
-    return transit + '<div class="card stop" data-id="' + esc(s.id) + '">' +
+    const stBadge = state === "mod" ? '<span class="badge fb-cand">수정됨</span>'
+                  : state === "hid" ? '<span class="badge fb-hid">숨김</span>' : "";
+    return transit + '<div class="card stop' + (state === "hid" ? " hid" : "") + '" data-id="' + esc(s.id) + '">' +
       '<span class="tm num">' + esc(s.time_start || "") + (s.time_end ? "<br>" + esc(s.time_end) : "") + "</span>" +
       '<span class="tile ' + (CAT_TILE[s.category] || "t-etc") + '">' + (CAT_EMOJI[s.category] || "📍") + "</span>" +
-      '<div class="bd"><div class="nm">' + esc(s.name) + '</div><div class="sub">' + esc(subFor(s)) + "</div></div>" +
-      badgeFor(s) + "</div>";
+      '<div class="bd"><div class="nm">' + esc(s.name) + '</div><div class="sub">' + esc(subFor(s)) + "</div>" +
+      (stBadge ? '<div class="fbadges">' + stBadge + "</div>" : "") + "</div>" +
+      badgeFor(s) + '<span class="ovledit" data-edit="' + esc(s.id) + '" title="편집">✎</span></div>';
   }
   function renderDayList(day){
-    const rows = (day.stops || []).map(s => ({ s, ov:false, t: padT(s.time_start) || "99:99" }))
-      .concat(planForDate(day.date).map(s => ({ s, ov:true, t: padT(s.time_start) || "99:98" })));
+    const rows = (day.stops || []).map(s => {
+      const ov = ovFor(s.id);
+      if (ov && ov.category === "숨김") return { s, state:"hid", t: padT(s.time_start) || "99:99" };
+      if (ov){ const ms = mergeOv(s, ov); return { s: ms, state:"mod", t: padT(ms.time_start) || "99:99" }; }
+      return { s, state:"", t: padT(s.time_start) || "99:99" };
+    }).concat(planForDate(day.date).map(s => ({ s, state:"add", t: padT(s.time_start) || "99:98" })));
     rows.sort((a,b) => a.t.localeCompare(b.t));
-    daylist.innerHTML = rows.map(r => r.ov ? planRow(r.s) : staticRow(r.s)).join("");
+    daylist.innerHTML = rows.map(r => r.state === "add" ? planRow(r.s) : staticRow(r.s, r.state)).join("");
   }
   const FB_CLS = b => b === "실내" ? "fb-in" : (b === "웨이팅" ? "fb-wait" : (b === "현금만" || b === "카드전용" ? "fb-cash" : "fb-rest"));
   let placeItems = [], foodFilter = "all", placesLoaded = false, planItems = [];
@@ -687,6 +712,10 @@
   daylist.addEventListener("click", e => {
     const ds = e.target.closest(".dsum");
     if (ds){ select(ds.dataset.day); return; }
+    const ed = e.target.closest("[data-edit]");
+    if (ed){ const t = tabs.find(x => x.key === curTabKey);
+      const s = t && t.day ? (t.day.stops || []).find(x => String(x.id) === ed.dataset.edit) : null;
+      if (s) openOverrideDlg(s, t.day.date); return; }
     const ap = e.target.closest("[data-addplan]");
     if (ap){ const id = ap.dataset.addplan;
       const s = (foodDay ? foodDay.stops || [] : []).find(x => String(x.id) === id) || placeItems.find(x => String(x.id) === id);
@@ -1436,14 +1465,9 @@
 
   /* ═══════════ 일정 오버레이(itinerary) 다이얼로그 ═══════════ */
   const idlg = $("#idlg");
-  let iEditing = null, iDraft = null, iBusy = false;
+  let iEditing = null, iDraft = null, iBusy = false, iMode = "norm", iOvId = null, iOvHas = false, iStaticName = "";
   const IT_CATS = ["맛집","명소","카페","번화가","휴식","기타"];
-  function openItdlg(p, prefill){
-    iEditing = p ? p.id : null;
-    const src = p || prefill || {};
-    iDraft = { date: src.date || (routeDays[0] && routeDays[0].date) || "", category: src.category || "명소",
-      lat: (src.lat != null ? src.lat : ""), lng: (src.lng != null ? src.lng : "") };
-    $("#idlg-ttl").textContent = p ? "일정 수정" : "일정에 추가";
+  function iDlgCommon(src){
     $("#i-date").innerHTML = routeDays.map(d => '<button data-d="' + d.date + '" class="' + (d.date === iDraft.date ? "on" : "") + '">' +
       '<span class="dot" style="background:' + esc(d.color) + '"></span>' + esc((d.dow || "") + " " + Number(d.date.slice(8))) + "</button>").join("");
     $("#i-cat").innerHTML = IT_CATS.map(c => '<button type="button" data-c="' + c + '"' + (c === iDraft.category ? ' class="on"' : "") + ">" + (CAT_EMOJI[c] || "📍") + " " + c + "</button>").join("");
@@ -1452,10 +1476,36 @@
     $("#i-memo").value = src.memo || "";
     $("#i-lat").value = iDraft.lat; $("#i-lng").value = iDraft.lng;
     $("#i-geo").textContent = (iDraft.lat !== "") ? "📍 좌표 포함 — 지도에 표시됩니다" : "좌표 없음 — 리스트에만 표시";
-    $("#i-del").style.display = p ? "" : "none";
     idlg.classList.add("open");
   }
+  function openItdlg(p, prefill){
+    iMode = "norm"; iEditing = p ? p.id : null; iOvId = null;
+    const src = p || prefill || {};
+    iDraft = { date: src.date || (routeDays[0] && routeDays[0].date) || "", category: src.category || "명소",
+      lat: (src.lat != null ? src.lat : ""), lng: (src.lng != null ? src.lng : "") };
+    $("#idlg-ttl").textContent = p ? "일정 수정" : "일정에 추가";
+    $("#i-del").textContent = "삭제";
+    $("#i-del").style.display = p ? "" : "none";
+    $("#i-hide").style.display = "none";
+    iDlgCommon(src);
+  }
+  /* 정적 항목 오버라이드 편집: 원본 보존, ov_<id> 레코드로 덮어쓰기 */
+  function openOverrideDlg(s, dayDate){
+    iMode = "ov"; iEditing = null; iOvId = "ov_" + s.id; iStaticName = s.name;
+    const ov = ovFor(s.id), hidden = !!(ov && ov.category === "숨김");
+    iOvHas = !!ov;
+    const src = (ov && !hidden) ? { time: ov.time, name: ov.name || s.name, memo: ov.memo || s.memo, category: ov.category }
+                                : { time: padT(s.time_start), name: s.name, memo: s.memo, category: s.category };
+    iDraft = { date: dayDate, category: IT_CATS.indexOf(src.category) >= 0 ? src.category : "기타",
+      lat: (s.lat != null ? s.lat : ""), lng: (s.lng != null ? s.lng : "") };
+    $("#idlg-ttl").textContent = (hidden ? "숨긴 일정 · " : "일정 편집 · ") + "원본 보존";
+    $("#i-del").textContent = hidden ? "복원" : "되돌리기";
+    $("#i-del").style.display = iOvHas ? "" : "none";
+    $("#i-hide").style.display = hidden ? "none" : "";
+    iDlgCommon(src);
+  }
   $("#i-date").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return;
+    if (iMode === "ov") return;                                       // 오버라이드는 원본 날짜 고정
     iDraft.date = b.dataset.d; $("#i-date").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); });
   $("#i-cat").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return;
     iDraft.category = b.dataset.c; $("#i-cat").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); });
@@ -1468,24 +1518,38 @@
     if (!name){ toast("이름을 입력하세요"); return; }
     if (!iDraft.date){ toast("날짜를 선택하세요"); return; }
     if (!configured()){ toast("연동 설정이 필요합니다"); return; }
-    const id = iEditing || ("i" + Date.now() + Math.floor(Math.random()*1e4));
+    const id = iMode === "ov" ? iOvId : (iEditing || ("i" + Date.now() + Math.floor(Math.random()*1e4)));
     const entry = { id, date:iDraft.date, time: $("#i-time").value, name, category:iDraft.category,
       memo: $("#i-memo").value.trim(), lat:iDraft.lat, lng:iDraft.lng, createdBy: MEMBERS[0] };
     const btn = $("#i-save"); iBusy = true; btn.disabled = true; btn.textContent = "저장 중…";
-    postEntry({ action: iEditing ? "update" : "add", token:TOKEN, sheet:"itinerary", entry }).then(r => {
+    // ov 모드는 add로 전송(서버가 같은 id면 in-place 갱신) → 존재 여부 무관 upsert
+    postEntry({ action: iMode === "ov" ? "add" : (iEditing ? "update" : "add"), token:TOKEN, sheet:"itinerary", entry }).then(r => {
       if (r && r.ok === false){ iBusy = false; btn.disabled = false; btn.textContent = "저장";
         toast(r.error === "not found" ? "이미 삭제된 항목 — 새로고침" : (r.error === "bad date" ? "날짜 오류" : "저장 거부" + (r.error ? ": " + r.error : ""))); return; }
       return iReload().then(() => { iBusy = false; btn.disabled = false; btn.textContent = "저장";
-        idlg.classList.remove("open"); toast(iEditing ? "수정됨" : "일정에 추가됨"); });
+        idlg.classList.remove("open"); toast(iMode === "ov" ? "수정됨 (원본 보존)" : (iEditing ? "수정됨" : "일정에 추가됨")); });
     }).catch(() => { iBusy = false; btn.disabled = false; btn.textContent = "저장"; toast("저장 실패(네트워크)"); });
   });
   $("#i-del").addEventListener("click", () => {
-    if (iBusy || !iEditing) return;
-    if (!confirm("이 일정 항목을 삭제할까요?")) return;
-    iBusy = true; const btn = $("#i-del"); btn.textContent = "삭제 중…";
-    postEntry({ action:"delete", token:TOKEN, sheet:"itinerary", id:iEditing }).then(() => iReload()).then(() => {
-      iBusy = false; btn.textContent = "삭제"; idlg.classList.remove("open"); toast("삭제됨");
-    }).catch(() => { iBusy = false; btn.textContent = "삭제"; toast("삭제 실패"); });
+    if (iBusy) return;
+    const delId = iMode === "ov" ? (iOvHas ? iOvId : null) : iEditing;
+    if (!delId) return;
+    const q = iMode === "ov" ? "원본 내용으로 되돌릴까요?" : "이 일정 항목을 삭제할까요?";
+    if (!confirm(q)) return;
+    iBusy = true; const btn = $("#i-del"); const lbl = btn.textContent; btn.textContent = "처리 중…";
+    postEntry({ action:"delete", token:TOKEN, sheet:"itinerary", id:delId }).then(() => iReload()).then(() => {
+      iBusy = false; btn.textContent = lbl; idlg.classList.remove("open"); toast(iMode === "ov" ? "원본으로 복원됨" : "삭제됨");
+    }).catch(() => { iBusy = false; btn.textContent = lbl; toast("처리 실패"); });
+  });
+  $("#i-hide").addEventListener("click", () => {
+    if (iBusy || iMode !== "ov") return;
+    if (!confirm("이 항목을 그날 일정에서 숨길까요? (언제든 복원 가능)")) return;
+    const entry = { id: iOvId, date: iDraft.date, time:"", name: iStaticName, category:"숨김", memo:"", lat:"", lng:"", createdBy: MEMBERS[0] };
+    iBusy = true; const btn = $("#i-hide"); btn.textContent = "숨기는 중…";
+    postEntry({ action:"add", token:TOKEN, sheet:"itinerary", entry }).then(r => {
+      if (r && r.ok === false){ iBusy = false; btn.textContent = "숨기기"; toast("실패" + (r.error ? ": " + r.error : "")); return; }
+      return iReload().then(() => { iBusy = false; btn.textContent = "숨기기"; idlg.classList.remove("open"); toast("숨김 처리됨"); });
+    }).catch(() => { iBusy = false; btn.textContent = "숨기기"; toast("숨김 실패(네트워크)"); });
   });
 
   /* ESC로 다이얼로그 닫기(데스크톱) */
