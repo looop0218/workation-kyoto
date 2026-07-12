@@ -415,11 +415,19 @@ function _itSheet(){
   if(String(sh.getRange(1, IT_HEADERS.length+1).getValue()) === ""){ sh.getRange(1, IT_HEADERS.length+1).setValue("deleted"); }  // 소프트삭제 컬럼(11열) 보강
   return sh;
 }
+function _itDate(v){  // 시트가 Date로 자동 변환한 값 → "yyyy-MM-dd" 정규화
+  if(Object.prototype.toString.call(v) === "[object Date]") return Utilities.formatDate(v, Session.getScriptTimeZone() || "Asia/Seoul", "yyyy-MM-dd");
+  return String(v||"");
+}
+function _itTime(v){  // Date/문자열 → "HH:mm" 정규화
+  if(Object.prototype.toString.call(v) === "[object Date]") return Utilities.formatDate(v, Session.getScriptTimeZone() || "Asia/Seoul", "HH:mm");
+  var m = String(v||"").match(/(\d{1,2}):(\d{2})/); return m ? (("0"+m[1]).slice(-2) + ":" + m[2]) : "";
+}
 function _itItems(){
   var v = _itSheet().getDataRange().getValues(), out = [];
   // 0 id|1 date|2 time|3 name|4 lat|5 lng|6 memo|7 category|8 createdBy|9 ts|10 deleted
   for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[10]) continue;   // 소프트삭제 행 제외
-    out.push({ id:String(r[0]), date:String(r[1]||""), time:String(r[2]||""), name:String(r[3]||""),
+    out.push({ id:String(r[0]), date:_itDate(r[1]), time:_itTime(r[2]), name:String(r[3]||""),
                lat:(r[4]===""||r[4]==null)?null:Number(r[4]), lng:(r[5]===""||r[5]==null)?null:Number(r[5]),
                memo:String(r[6]||""), category:String(r[7]||""), createdBy:String(r[8]||"") });
   }

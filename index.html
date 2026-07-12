@@ -706,9 +706,15 @@
     const row = e.target.closest(".stop");
     if (row) focusStop(row.dataset.id);
   });
+  // 시트가 날짜/시간을 Date로 자동 변환해 "Wed Jul 29 2026…" 형태로 돌려줌 → 표준형으로 정규화
+  const normDate = v => { const s = String(v || ""); if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s); if (isNaN(d.getTime())) return s;
+    return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+  const normTime = v => { const m = String(v || "").match(/(\d{1,2}):(\d{2})/); return m ? (m[1].padStart(2,"0") + ":" + m[2]) : ""; };
   function itineraryList(){ return jsonp("action=list&sheet=itinerary&token=" + encodeURIComponent(TOKEN)).then(d => {
     // 재배포 전 오염 방지: itinerary 스키마(date 有·name 有·cat 無)만 통과
-    if (d && d.ok && d.items) planItems = d.items.filter(x => x && x.name != null && x.date != null && x.cat == null); }).catch(() => {}); }
+    if (d && d.ok && d.items) planItems = d.items.filter(x => x && x.name != null && x.date != null && x.cat == null)
+      .map(x => Object.assign({}, x, { date: normDate(x.date), time: normTime(x.time) })); }).catch(() => {}); }
 
   /* ── 날짜 세그먼트 ── */
   const seg = $("#dayseg"), dayinfo = $("#dayinfo");
