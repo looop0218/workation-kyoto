@@ -63,6 +63,16 @@ var PL_SHEET   = "맛집후보";
 var PL_HEADERS = ["id","name","region","lat","lng","foundBy","url","memo","status","ts"];
 var PL_LEN     = { name:80, region:40, memo:200 };
 
+/* ── 일정 오버레이(itinerary) 시트: 정적 동선(index.html 임베드)은 그대로, 팀 추가분만 여기 ──
+ *  헤더: id | date | time | name | lat | lng | memo | category | createdBy | ts | deleted
+ *  date=YYYY-MM-DD, time=HH:MM(정렬용). 좌표는 일본 범위 밖이면 저장 안 함.
+ */
+var IT_SHEET   = "일정추가";
+var IT_HEADERS = ["id","date","time","name","lat","lng","memo","category","createdBy","ts"];
+var IT_LEN     = { name:80, memo:200 };
+var IT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+var IT_TIME_RE = /^\d{1,2}:\d{2}$/;
+
 /* ── 예약 첨부 문서(booking-docs) ──
  *  ★★★ 아래 BK_DOCS_FOLDER_ID 에 드라이브 폴더 ID를 붙여넣으세요. ★★★
  *    - 그 폴더는 팀원 4명 구글계정에 "뷰어"로만 공유(일반 액세스=제한됨, '링크가 있는 모든 사용자' 금지).
@@ -89,7 +99,7 @@ function _out(obj, cb){
 }
 
 // sheet 파라미터 정규화: 미지정/미상 → "expenses"(하위호환 사수)
-function _route(v){ v = String(v||""); return (v === "bookings" || v === "places") ? v : "expenses"; }
+function _route(v){ v = String(v||""); return (v === "bookings" || v === "places" || v === "itinerary") ? v : "expenses"; }
 // 숫자 범위 검증(밖이면 "" 반환 → 저장 안 함)
 function _numRange(v, lo, hi){ var n = Number(v); return (n >= lo && n <= hi) ? n : ""; }
 
@@ -395,6 +405,73 @@ function _placesPost(d){
   return _out({ok:false, error:"bad action"});
 }
 
+/* ───────────────────────── 일정 오버레이(itinerary) ───────────────────────── */
+
+function _itSheet(){
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(IT_SHEET);
+  if(!sh){ sh = ss.insertSheet(IT_SHEET); sh.appendRow(IT_HEADERS.concat(["deleted"])); return sh; }
+  if(String(sh.getRange(1, IT_HEADERS.length+1).getValue()) === ""){ sh.getRange(1, IT_HEADERS.length+1).setValue("deleted"); }  // 소프트삭제 컬럼(11열) 보강
+  return sh;
+}
+function _itItems(){
+  var v = _itSheet().getDataRange().getValues(), out = [];
+  // 0 id|1 date|2 time|3 name|4 lat|5 lng|6 memo|7 category|8 createdBy|9 ts|10 deleted
+  for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[10]) continue;   // 소프트삭제 행 제외
+    out.push({ id:String(r[0]), date:String(r[1]||""), time:String(r[2]||""), name:String(r[3]||""),
+               lat:(r[4]===""||r[4]==null)?null:Number(r[4]), lng:(r[5]===""||r[5]==null)?null:Number(r[5]),
+               memo:String(r[6]||""), category:String(r[7]||""), createdBy:String(r[8]||"") });
+  }
+  return out;
+}
+
+// 일정 오버레이: GET(list)
+function _itineraryGet(p, cb){ return _out({ok:true, items:_itItems()}, cb); }
+
+// 일정 오버레이: POST(add/update/delete)
+function _itineraryPost(d){
+  var sh = _itSheet();
+
+  if(d.action === "list"){ return _out({ok:true, items:_itItems()}); }
+
+  if(d.action === "add" || d.action === "update"){
+    var en = d.entry || {};
+    var id = String(en.id||""); if(!id) return _out({ok:false, error:"bad id"});
+    var date = String(en.date||""); if(!IT_DATE_RE.test(date)) return _out({ok:false, error:"bad date"});
+    var name = String(en.name||"").slice(0, IT_LEN.name); if(!name) return _out({ok:false, error:"bad name"});
+    var time = IT_TIME_RE.test(String(en.time||"")) ? String(en.time) : "";
+    var lat = _numRange(en.lat, 24, 46);
+    var lng = _numRange(en.lng, 122, 154);
+    if(lat === "" || lng === ""){ lat = ""; lng = ""; }
+    var memo = String(en.memo||"").slice(0, IT_LEN.memo);
+    var category = String(en.category||"").slice(0, 12);
+    var createdBy = String(en.createdBy||"").slice(0, 12);
+    var row = [id, date, time, name, lat, lng, memo, category, createdBy, new Date()];
+    var v = sh.getDataRange().getValues();
+    for(var i=1;i<v.length;i++){
+      if(v[i][10]) continue;
+      if(String(v[i][0]) === id){ sh.getRange(i+1,1,1,row.length).setValues([row]); _audit(d.action,"itinerary",id,d.token,date+" "+name); return _out({ok:true, id:id}); }
+    }
+    if(d.action === "update") return _out({ok:false, error:"not found"});
+    sh.appendRow(row); _audit("add","itinerary",id,d.token,date+" "+name); return _out({ok:true, id:id});
+  }
+
+  if(d.action === "delete"){
+    var v2 = sh.getDataRange().getValues();
+    for(var j=1;j<v2.length;j++){
+      if(v2[j][10]) continue;
+      if(String(v2[j][0]) === String(d.id)){
+        sh.getRange(j+1, IT_HEADERS.length+1).setValue(1);
+        _audit("delete","itinerary",d.id,d.token, String(v2[j][1])+" "+String(v2[j][3]));
+        return _out({ok:true});
+      }
+    }
+    return _out({ok:false, error:"not found"});
+  }
+
+  return _out({ok:false, error:"bad action"});
+}
+
 /* ───────────────────────── 엔트리포인트 ───────────────────────── */
 
 function doGet(e){
@@ -405,6 +482,7 @@ function doGet(e){
     // sheet 미지정 시 "expenses"로 폴백 → 기존 경비/잔액/영수증 호출(sheet 없이 옴) 안 깨짐
     if(_route(p.sheet) === "bookings") return _bookingsGet(p, cb);
     if(_route(p.sheet) === "places") return _placesGet(p, cb);
+    if(_route(p.sheet) === "itinerary") return _itineraryGet(p, cb);
     return _expensesGet(p, cb);
   } catch(err){ try{ console.error(err); }catch(e2){} return _out({ok:false, error:"server error"}, cb); }
 }
@@ -419,6 +497,7 @@ function doPost(e){
     // sheet 미지정 시 "expenses"로 폴백(하위호환 사수)
     if(_route(d.sheet) === "bookings") return _bookingsPost(d);
     if(_route(d.sheet) === "places") return _placesPost(d);
+    if(_route(d.sheet) === "itinerary") return _itineraryPost(d);
     return _expensesPost(d);
   } catch(err){ try{ console.error(err); }catch(e5){} return _out({ok:false, error:"server error"}); }
   finally { try{ lock.releaseLock(); }catch(eRel){} }
