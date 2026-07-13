@@ -221,6 +221,18 @@
   .t-charge{background:#ccfbf1;} .t-fly{background:#e0f2fe;}
 
   /* ── 잔액·환율(V4) ── */
+  .fundcard{background:var(--bg);border:.6px solid var(--line);border-radius:var(--r-xl);padding:16px 18px;margin:2px 0 10px;box-shadow:var(--sh-card);}
+  .fundcard .v{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:5px 0 2px;}
+  .fundcard .fg{height:8px;border-radius:99px;background:var(--bg3);margin:11px 0 9px;overflow:hidden;}
+  .fundcard .fg i{display:block;height:100%;border-radius:99px;background:var(--accent);}
+  .fundsplit{display:flex;gap:10px;font-size:12px;}
+  .fundsplit .c{flex:1;}
+  .fundsplit .l{color:var(--muted);font-size:10.5px;font-weight:700;}
+  .fundsplit .n{font-weight:800;margin-top:1px;}
+  .fundsplit .n.ex{color:var(--accent-ink);} .fundsplit .n.re{color:var(--ink);}
+  .fundby{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px;}
+  .fundby .chip{background:var(--bg3);}
+  .fund-add{width:100%;margin-top:11px;border:.6px dashed var(--accent);color:var(--accent-ink);background:var(--accent-soft);border-radius:var(--r-md);padding:10px;font-size:13px;font-weight:800;}
   .balcard{background:var(--cta);color:#fff;border-radius:var(--r-xl);padding:18px;margin:2px 0 12px;box-shadow:var(--sh-el);}
   .balcard .v{font-size:33px;font-weight:800;letter-spacing:-.02em;margin:6px 0 2px;}
   .balcard .s{font-size:11.5px;color:#9ca3af;}
@@ -331,6 +343,25 @@
 <button class="fab" id="food-fab" style="display:none">＋ 맛집 추가</button>
 <button class="fab" id="plan-fab" style="display:none">＋ 일정 추가</button>
 <input type="file" id="e-file" accept="image/*" style="display:none">
+
+<div class="dlgwrap" id="fdlg">
+  <div class="back" id="fdlg-back"></div>
+  <div class="dlg">
+    <div class="grip"><i></i></div>
+    <h3 id="fdlg-ttl">회비 입금</h3>
+    <div class="f">
+      <label>금액 ₩ *</label>
+      <input id="f-krw" type="text" inputmode="numeric" class="big num" placeholder="예: 500,000">
+      <label>날짜</label>
+      <input id="f-date" type="date">
+      <label>낸 사람</label>
+      <div class="memrow" id="f-payer"></div>
+      <label>메모</label>
+      <input id="f-memo" type="text" maxlength="200" placeholder="예: 1차 회비 각출">
+      <div class="dlgbtns"><button class="del" id="f-del" style="display:none">삭제</button><button class="cta" id="f-save">저장</button></div>
+    </div>
+  </div>
+</div>
 
 <div class="dlgwrap" id="idlg">
   <div class="back" id="idlg-back"></div>
@@ -1188,6 +1219,10 @@
   const balBody = $("#bal-body");
   const balVisible = () => $("#v-bal").style.display !== "none";
   const CAT_COLOR = {"식비":"#f43f5e","교통":"#3b82f6","입장·관광":"#8b5cf6","회식·술":"#f59e0b","숙박":"#22c55e","기타":"#64748b"};
+  let fundItems = [];
+  // 회비 오염 가드: fund 스키마(krw 有·name/cat/type 無)만 통과 — 구버전 서버가 fund를 경비로 폴백해도 안전
+  function fundList(){ return jsonp("action=list&sheet=fund&token=" + encodeURIComponent(TOKEN)).then(d => {
+    if (d && d.ok && d.items) fundItems = d.items.filter(x => x && x.krw != null && x.name == null && x.cat == null && x.type == null); }).catch(() => {}); }
   function renderBal(){
     const chs = entries.filter(e => e.cat === "충전");
     const EX = entries.filter(e => e.cat !== "충전");
@@ -1195,7 +1230,30 @@
     const chargeKrw = chs.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);  // 실지불 원화(없으면 환율환산 폴백)
     const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);
     const bal = charge - spend, pct = charge > 0 ? Math.round(spend/charge*100) : 0;
-    let h = '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
+    // ── 회비 계층(원화, 최상위): 전체 회비 → 환전함(=충전 실지불) / 미환전 잔여 ──
+    const fundTotal = fundItems.reduce((s,f) => s + (Number(f.krw)||0), 0);
+    const exch = chargeKrw, unexch = Math.max(0, fundTotal - exch);
+    const exPct = fundTotal > 0 ? Math.round(exch/fundTotal*100) : 0;
+    let h = '<div class="fundcard"><div class="cap">전체 회비</div><div class="v num">₩' + fmt(fundTotal) + "</div>";
+    if (fundTotal > 0){
+      h += '<div class="fg"><i style="width:' + Math.min(exPct,100) + '%"></i></div>' +
+        '<div class="fundsplit"><div class="c"><div class="l">환전함 (' + exPct + '%)</div><div class="n ex num">₩' + fmt(exch) + "</div></div>" +
+        '<div class="c"><div class="l">미환전 잔여</div><div class="n re num">₩' + fmt(unexch) + "</div></div></div>";
+    } else h += '<div class="s" style="font-size:11.5px;color:var(--muted);margin-top:6px">아직 입금된 회비가 없어요 — 아래 버튼으로 시작하세요.</div>';
+    const byPayer = {}; fundItems.forEach(f => { const p = f.payer || "?"; byPayer[p] = (byPayer[p]||0) + (Number(f.krw)||0); });
+    const payers = Object.keys(byPayer);
+    if (payers.length) h += '<div class="fundby">' + payers.map(p => '<span class="chip">' + avHtml(p) + " ₩" + fmt(byPayer[p]) + "</span>").join("") + "</div>";
+    h += '<button class="fund-add" data-fund-add="1">＋ 회비 입금</button></div>';
+    if (fundItems.length){
+      h += '<div class="cap" style="display:block;padding:2px 4px 6px">회비 입금 내역</div>';
+      fundItems.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(f => {
+        h += '<div class="card erow" data-fund="' + esc(f.id) + '"><span class="tile t-charge">🏦</span>' +
+          '<div class="bd"><div class="nm">' + esc(f.memo || "회비 입금") + '</div><div class="who">' + avHtml(f.payer) + '<span class="lbl num">' + esc(f.payer || "?") + " · " + esc(dhead(f.date)) + "</span></div></div>" +
+          '<div class="amt"><div class="j num">₩' + fmt(f.krw) + "</div></div></div>";
+      });
+      h += '<div class="cap" style="display:block;padding:14px 4px 6px">트레블월렛 (엔화)</div>';
+    }
+    h += '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
       '<div class="s num">' + (charge > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(bal)) + " · 환율 " +
       (fxLive ? "실시간" : "기본(" + esc(String(FXD2.updated || "내장").replace(" (실시간)", "")) + ")") + "</div>" +
       '<div class="gauge"><i style="width:' + Math.min(Math.max(pct,0),100) + '%"></i></div></div>';
@@ -1228,14 +1286,59 @@
   }
   balBody.addEventListener("click", ev => {
     if (ev.target.closest("[data-rc]")) return;
+    if (ev.target.closest("[data-fund-add]")){ openFdlg(null); return; }
+    const fr = ev.target.closest("[data-fund]");
+    if (fr){ const f = fundItems.find(x => String(x.id) === fr.dataset.fund); if (f) openFdlg(f); return; }
     const row = ev.target.closest(".erow");
     if (row){ const e = entries.find(x => String(x.id) === row.dataset.id); if (e) openDlg(e); }
   });
   function balEnter(){ loadCacheE();
-    if (entries.length) renderBal();
+    if (entries.length || fundItems.length) renderBal();
     else balBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
     fxSync();
-    refresh().then(() => { if (balVisible()) renderBal(); }); }
+    Promise.all([refresh(), fundList()]).then(() => { if (balVisible()) renderBal(); }); }
+
+  /* 회비 입금 다이얼로그 */
+  const fdlg = $("#fdlg");
+  let fEditing = null, fDraft = null, fBusy = false;
+  function openFdlg(f){
+    fEditing = f ? f.id : null;
+    fDraft = { payer: f ? (f.payer || MEMBERS[0]) : MEMBERS[0] };
+    $("#fdlg-ttl").textContent = f ? "회비 입금 수정" : "회비 입금";
+    $("#f-krw").value = f ? fmt(f.krw) : "";
+    $("#f-date").value = (f && /^\d{4}-\d{2}-\d{2}/.test(f.date)) ? f.date.slice(0,10) : todayISO();
+    $("#f-memo").value = f ? (f.memo || "") : "";
+    memBtns($("#f-payer"), [fDraft.payer]);
+    $("#f-del").style.display = f ? "" : "none";
+    fdlg.classList.add("open");
+  }
+  $("#f-payer").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
+    fDraft.payer = el.dataset.m; memBtns($("#f-payer"), [fDraft.payer]); });
+  $("#fdlg-back").addEventListener("click", () => { if (!fBusy) fdlg.classList.remove("open"); });
+  function fReload(){ return fundList().then(() => { if (balVisible()) renderBal(); }); }
+  $("#f-save").addEventListener("click", () => {
+    if (fBusy) return;
+    const krw = num($("#f-krw").value);
+    if (!krw){ toast("금액을 입력하세요"); return; }
+    if (!configured()){ toast("연동 설정이 필요합니다"); return; }
+    const id = fEditing || ("f" + Date.now() + Math.floor(Math.random()*1e4));
+    const entry = { id, date: $("#f-date").value || todayISO(), krw, payer: fDraft.payer, memo: $("#f-memo").value.trim() };
+    const btn = $("#f-save"); fBusy = true; btn.disabled = true; btn.textContent = "저장 중…";
+    postEntry({ action: fEditing ? "update" : "add", token:TOKEN, sheet:"fund", entry }).then(r => {
+      if (r && r.ok === false){ fBusy = false; btn.disabled = false; btn.textContent = "저장";
+        toast(r.error === "not found" ? "이미 삭제됨 — 새로고침" : (r.error === "bad krw" ? "금액 오류" : "저장 거부" + (r.error ? ": " + r.error : ""))); return; }
+      return fReload().then(() => { fBusy = false; btn.disabled = false; btn.textContent = "저장";
+        fdlg.classList.remove("open"); toast(fEditing ? "수정됨" : "회비 입금됨"); });
+    }).catch(() => { fBusy = false; btn.disabled = false; btn.textContent = "저장"; toast("저장 실패(네트워크)"); });
+  });
+  $("#f-del").addEventListener("click", () => {
+    if (fBusy || !fEditing) return;
+    if (!confirm("이 회비 입금 기록을 삭제할까요?")) return;
+    fBusy = true; const btn = $("#f-del"); btn.textContent = "삭제 중…";
+    postEntry({ action:"delete", token:TOKEN, sheet:"fund", id:fEditing }).then(() => fReload()).then(() => {
+      fBusy = false; btn.textContent = "삭제"; fdlg.classList.remove("open"); toast("삭제됨");
+    }).catch(() => { fBusy = false; btn.textContent = "삭제"; toast("삭제 실패"); });
+  });
 
   /* 환율 위젯(¥↔₩ 양방향) */
   const fxJI = $("#fx-j"), fxKI = $("#fx-k");
@@ -1577,6 +1680,7 @@
     if (bdlg.classList.contains("open") && !bkBusy) bdlg.classList.remove("open");
     if (pdlg.classList.contains("open") && !pBusy) pdlg.classList.remove("open");
     if (idlg.classList.contains("open") && !iBusy) idlg.classList.remove("open");
+    if (fdlg.classList.contains("open") && !fBusy) fdlg.classList.remove("open");
   });
 
   // 일정 오버레이(팀 추가분) 초기 로드 — 모든 정의 후(configured 등 TDZ 회피)
