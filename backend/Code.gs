@@ -133,8 +133,9 @@ function _seenToken(token){
 function _sheet(){
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sh = ss.getSheetByName(SHEET);
-  if(!sh){ sh = ss.insertSheet(SHEET); sh.appendRow(["id","date","cat","amount","payer","parts","memo","ts","receipt","deleted"]); return sh; }
+  if(!sh){ sh = ss.insertSheet(SHEET); sh.appendRow(["id","date","cat","amount","payer","parts","memo","ts","receipt","deleted","krw"]); return sh; }
   if(String(sh.getRange(1,10).getValue()) === ""){ sh.getRange(1,10).setValue("deleted"); }  // 소프트삭제 컬럼(10열) 보강 — 빈 셀일 때만(수동 확장열 덮어쓰기 방지)
+  if(String(sh.getRange(1,11).getValue()) === ""){ sh.getRange(1,11).setValue("krw"); }        // 충전 실지불 원화(11열) 보강
   return sh;
 }
 function _items(){
@@ -142,7 +143,7 @@ function _items(){
   for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[9]) continue;   // 소프트삭제 행 제외
     out.push({ id:String(r[0]), date:String(r[1]), cat:String(r[2]), amount:Number(r[3])||0,
                payer:String(r[4]), parts:String(r[5]||"").split("|").filter(String), memo:String(r[6]||""),
-               receipt:String(r[8]||"") });
+               receipt:String(r[8]||""), krw:(r[10]===""||r[10]==null)?null:Number(r[10]) });   // 충전 실지불 원화(없으면 null)
   }
   return out;
 }
@@ -205,7 +206,9 @@ function _expensesPost(d){
     var memo  = String(en.memo||"").slice(0,200);
     var parts = (en.parts||[]).join("|");
     var rc = RECEIPT_URL_RE.test(String(en.receipt||"")) ? String(en.receipt) : "";  // 화이트리스트 통과분만
-    var row = [String(en.id), String(en.date), en.cat, amt, String(en.payer||""), parts, memo, new Date(), rc];
+    var krw = (en.krw!=null && Number(en.krw)>=0 && Number(en.krw)<=100000000) ? Math.round(Number(en.krw)) : "";  // 충전 실지불 원화(선택)
+    // 10열=deleted 자리는 ""(살아있는 행 갱신/신규라 무삭제), 11열=krw
+    var row = [String(en.id), String(en.date), en.cat, amt, String(en.payer||""), parts, memo, new Date(), rc, "", krw];
     var v = sh.getDataRange().getValues();
     for(var i=1;i<v.length;i++){
       if(v[i][9]) continue;                                                 // 소프트삭제 행은 없는 것으로(부활 방지)

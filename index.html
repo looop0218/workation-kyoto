@@ -421,6 +421,11 @@
       <input id="e-date" type="date">
       <label>분류</label>
       <div class="pillgrid" id="e-cats"></div>
+      <div id="e-krw-wrap" style="display:none">
+        <label>실제 충전 원화 ₩ (트레블월렛에 낸 금액)</label>
+        <input id="e-krw" type="text" inputmode="numeric" class="num" placeholder="예: 965,631">
+        <div class="conv num" id="e-krw-rate"></div>
+      </div>
       <label>결제자</label>
       <div class="memrow" id="e-payer"></div>
       <label>참여자 · 균등 분담</label>
@@ -1065,24 +1070,31 @@
   function conv(){ const j = num($("#e-amt").value); $("#e-conv").textContent = j ? ("≈ ₩" + fmt(jKrw(j)) + " / $" + jUsd(j).toFixed(2)) : ""; }
   function openDlg(e){
     editingId = e ? e.id : null; rcFile = null;
-    draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"" }
-              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"" };
+    draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"", krw:(e.krw!=null?String(e.krw):"") }
+              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"" };
     $("#edlg-ttl").textContent = e ? "경비 수정" : "경비 추가";
     $("#e-amt").value = draft.amount ? fmt(draft.amount) : "";
     $("#e-date").value = draft.date || todayISO();
     $("#e-memo").value = draft.memo;
     $("#e-cats").innerHTML = CATS.map(c => '<button type="button" data-c="' + c + '"' + (c === draft.cat ? ' class="on"' : "") + ">" + CAT_EMO[c] + " " + c + "</button>").join("");
+    $("#e-krw").value = draft.krw ? fmt(draft.krw) : "";
     memBtns($("#e-payer"), [draft.payer]);
     memBtns($("#e-parts"), draft.parts);
     $("#e-del").style.display = e ? "" : "none";
-    rcState(); conv();
+    rcState(); conv(); krwToggle();
     edlg.classList.add("open");
   }
-  $("#e-amt").addEventListener("input", () => { draft.amount = String(num($("#e-amt").value)); conv(); });
+  function krwToggle(){
+    $("#e-krw-wrap").style.display = (draft.cat === "충전") ? "" : "none";
+    const j = num($("#e-amt").value), k = num($("#e-krw").value);
+    $("#e-krw-rate").textContent = (j && k) ? ("실효환율 ¥100 = ₩" + fmt(k / j * 100)) : "";
+  }
+  $("#e-amt").addEventListener("input", () => { draft.amount = String(num($("#e-amt").value)); conv(); krwToggle(); });
+  $("#e-krw").addEventListener("input", () => { draft.krw = String(num($("#e-krw").value)); krwToggle(); });
   $("#e-date").addEventListener("change", () => { draft.date = $("#e-date").value; });
   $("#e-memo").addEventListener("input", () => { draft.memo = $("#e-memo").value; });
   $("#e-cats").addEventListener("click", ev => { const btn = ev.target.closest("button"); if (!btn) return;
-    draft.cat = btn.dataset.c; $("#e-cats").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === btn)); });
+    draft.cat = btn.dataset.c; $("#e-cats").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === btn)); krwToggle(); });
   $("#e-payer").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
     draft.payer = el.dataset.m; memBtns($("#e-payer"), [draft.payer]); });
   $("#e-parts").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
@@ -1114,7 +1126,8 @@
       if (msg) toast(msg); if (ok){ edlg.classList.remove("open"); renderExp(); } };
     const doSave = receiptUrl => {
       const entry = { id, date:draft.date, cat:draft.cat, amount:amt, payer:draft.payer, parts:draft.parts.slice(),
-        memo:(draft.memo||"").slice(0,200), receipt:receiptUrl||"", clientId:"c" + Date.now() };
+        memo:(draft.memo||"").slice(0,200), receipt:receiptUrl||"", clientId:"c" + Date.now(),
+        krw: (draft.cat === "충전" && num(draft.krw)) ? num(draft.krw) : null };  // 충전만 실지불 원화 저장
       return postEntry({ action, token:TOKEN, entry }).then(r => {
         if (r && r.ok === false){
           const em = r.error === "bad amount" ? "금액이 한도(2천만엔)를 초과했습니다"
@@ -1179,13 +1192,15 @@
     const chs = entries.filter(e => e.cat === "충전");
     const EX = entries.filter(e => e.cat !== "충전");
     const charge = chs.reduce((s,e) => s + (Number(e.amount)||0), 0);
+    const chargeKrw = chs.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);  // 실지불 원화(없으면 환율환산 폴백)
     const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);
     const bal = charge - spend, pct = charge > 0 ? Math.round(spend/charge*100) : 0;
     let h = '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
       '<div class="s num">' + (charge > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(bal)) + " · 환율 " +
       (fxLive ? "실시간" : "기본(" + esc(String(FXD2.updated || "내장").replace(" (실시간)", "")) + ")") + "</div>" +
       '<div class="gauge"><i style="width:' + Math.min(Math.max(pct,0),100) + '%"></i></div></div>';
-    h += '<div class="statrow"><div class="card"><div class="cap">충전 누적</div><div class="v num">¥' + fmt(charge) + '</div></div>' +
+    h += '<div class="statrow"><div class="card"><div class="cap">충전 누적</div><div class="v num">¥' + fmt(charge) + '</div>' +
+      '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">실지불 ₩' + fmt(chargeKrw) + "</div></div>" +
       '<div class="card"><div class="cap">사용 누적</div><div class="v num">¥' + fmt(spend) + "</div></div></div>";
     const byCat = {};
     EX.forEach(e => { byCat[e.cat] = (byCat[e.cat]||0) + (Number(e.amount)||0); });
@@ -1202,9 +1217,12 @@
     else chs.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(e => {
       const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
         ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
+      const hasKrw = e.krw != null;
+      const kw = hasKrw ? Number(e.krw) : jKrw(Number(e.amount) || 0);
+      const rateS = (hasKrw && Number(e.amount)) ? ("¥100=₩" + fmt(Number(e.krw) / Number(e.amount) * 100)) : "환율 환산";
       h += '<div class="card erow" data-id="' + esc(e.id) + '"><span class="tile t-charge">💰</span>' +
         '<div class="bd"><div class="nm">' + esc(e.memo || "충전") + '</div><div class="who"><span class="lbl num">' + esc(dhead(e.date)) + " · " + esc(e.payer || "?") + "</span></div></div>" + rc +
-        '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(jKrw(e.amount)) + "</div></div></div>";
+        '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(kw) + '</div><div class="k num" style="font-size:9px;opacity:.8">' + esc(rateS) + "</div></div></div>";
     });
     balBody.innerHTML = h;
   }
