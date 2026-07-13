@@ -74,6 +74,14 @@ var IT_LEN     = { name:80, memo:200 };
 var IT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 var IT_TIME_RE = /^\d{1,2}:\d{2}$/;
 
+/* ── 회비(fund) 시트: 여행 자금 풀(원화). 경비(지출)와 완전 분리 ──
+ *  헤더: id | date | krw | payer | memo | ts | deleted
+ *  전체 회비 = Σ krw. 환전분은 경비 '충전'의 실지불 원화(krw)로 별도 추적 → 앱에서 미환전 계산.
+ */
+var FUND_SHEET   = "회비";
+var FUND_HEADERS = ["id","date","krw","payer","memo","ts"];
+var FUND_LEN     = { memo:200 };
+
 /* ── 예약 첨부 문서(booking-docs) ──
  *  ★★★ 아래 BK_DOCS_FOLDER_ID 에 드라이브 폴더 ID를 붙여넣으세요. ★★★
  *    - 그 폴더는 팀원 4명 구글계정에 "뷰어"로만 공유(일반 액세스=제한됨, '링크가 있는 모든 사용자' 금지).
@@ -100,7 +108,7 @@ function _out(obj, cb){
 }
 
 // sheet 파라미터 정규화: 미지정/미상 → "expenses"(하위호환 사수)
-function _route(v){ v = String(v||""); return (v === "bookings" || v === "places" || v === "itinerary") ? v : "expenses"; }
+function _route(v){ v = String(v||""); return (v === "bookings" || v === "places" || v === "itinerary" || v === "fund") ? v : "expenses"; }
 // 숫자 범위 검증(밖이면 "" 반환 → 저장 안 함)
 function _numRange(v, lo, hi){ var n = Number(v); return (n >= lo && n <= hi) ? n : ""; }
 
@@ -484,6 +492,67 @@ function _itineraryPost(d){
   return _out({ok:false, error:"bad action"});
 }
 
+/* ───────────────────────── 회비(fund) ───────────────────────── */
+
+function _fundSheet(){
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(FUND_SHEET);
+  if(!sh){ sh = ss.insertSheet(FUND_SHEET); sh.appendRow(FUND_HEADERS.concat(["deleted"])); return sh; }
+  if(String(sh.getRange(1, FUND_HEADERS.length+1).getValue()) === ""){ sh.getRange(1, FUND_HEADERS.length+1).setValue("deleted"); }  // 소프트삭제 컬럼(7열) 보강
+  return sh;
+}
+function _fundItems(){
+  var v = _fundSheet().getDataRange().getValues(), out = [];
+  // 0 id|1 date|2 krw|3 payer|4 memo|5 ts|6 deleted
+  for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[6]) continue;   // 소프트삭제 행 제외
+    out.push({ id:String(r[0]), date:_itDate(r[1]), krw:Number(r[2])||0, payer:String(r[3]||""), memo:String(r[4]||"") });
+  }
+  return out;
+}
+
+// 회비: GET(list)
+function _fundGet(p, cb){ return _out({ok:true, items:_fundItems()}, cb); }
+
+// 회비: POST(add/update/delete)
+function _fundPost(d){
+  var sh = _fundSheet();
+
+  if(d.action === "list"){ return _out({ok:true, items:_fundItems()}); }
+
+  if(d.action === "add" || d.action === "update"){
+    var en = d.entry || {};
+    var id = String(en.id||""); if(!id) return _out({ok:false, error:"bad id"});
+    var date = String(en.date||""); if(!IT_DATE_RE.test(date)) return _out({ok:false, error:"bad date"});
+    var krw = Number(en.krw); if(!(krw>0 && krw<=100000000)) return _out({ok:false, error:"bad krw"});  // 원화 입금액(양수 필수)
+    krw = Math.round(krw);
+    var payer = String(en.payer||"").slice(0, 12);
+    var memo = String(en.memo||"").slice(0, FUND_LEN.memo);
+    var row = [id, date, krw, payer, memo, new Date()];
+    var v = sh.getDataRange().getValues();
+    for(var i=1;i<v.length;i++){
+      if(v[i][6]) continue;
+      if(String(v[i][0]) === id){ sh.getRange(i+1,1,1,row.length).setValues([row]); _audit(d.action,"fund",id,d.token,"₩"+krw+(payer?(" "+payer):"")); return _out({ok:true, id:id}); }
+    }
+    if(d.action === "update") return _out({ok:false, error:"not found"});
+    sh.appendRow(row); _audit("add","fund",id,d.token,"₩"+krw+(payer?(" "+payer):"")); return _out({ok:true, id:id});
+  }
+
+  if(d.action === "delete"){
+    var v2 = sh.getDataRange().getValues();
+    for(var j=1;j<v2.length;j++){
+      if(v2[j][6]) continue;
+      if(String(v2[j][0]) === String(d.id)){
+        sh.getRange(j+1, FUND_HEADERS.length+1).setValue(1);
+        _audit("delete","fund",d.id,d.token, "₩"+String(v2[j][2]));
+        return _out({ok:true});
+      }
+    }
+    return _out({ok:false, error:"not found"});
+  }
+
+  return _out({ok:false, error:"bad action"});
+}
+
 /* ───────────────────────── 엔트리포인트 ───────────────────────── */
 
 function doGet(e){
@@ -495,6 +564,7 @@ function doGet(e){
     if(_route(p.sheet) === "bookings") return _bookingsGet(p, cb);
     if(_route(p.sheet) === "places") return _placesGet(p, cb);
     if(_route(p.sheet) === "itinerary") return _itineraryGet(p, cb);
+    if(_route(p.sheet) === "fund") return _fundGet(p, cb);
     return _expensesGet(p, cb);
   } catch(err){ try{ console.error(err); }catch(e2){} return _out({ok:false, error:"server error"}, cb); }
 }
@@ -510,6 +580,7 @@ function doPost(e){
     if(_route(d.sheet) === "bookings") return _bookingsPost(d);
     if(_route(d.sheet) === "places") return _placesPost(d);
     if(_route(d.sheet) === "itinerary") return _itineraryPost(d);
+    if(_route(d.sheet) === "fund") return _fundPost(d);
     return _expensesPost(d);
   } catch(err){ try{ console.error(err); }catch(e5){} return _out({ok:false, error:"server error"}); }
   finally { try{ lock.releaseLock(); }catch(eRel){} }
