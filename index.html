@@ -168,6 +168,7 @@
   .erow .who{display:flex;align-items:center;gap:5px;margin-top:3px;}
   .erow .who .av{width:17px;height:17px;font-size:8.5px;border-width:1.5px;margin-left:0;}
   .erow .who .lbl{font-size:11px;color:var(--muted);}
+  .pstag{flex:0 0 auto;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:6px;background:#fef3c7;color:#b45309;letter-spacing:.02em;}
   .erow .rc{font-size:12px;text-decoration:none;flex:0 0 auto;}
   .erow .amt{margin-left:auto;text-align:right;flex:0 0 auto;}
   .erow .amt .j{font-size:14.5px;font-weight:800;}
@@ -468,7 +469,9 @@
         <input id="e-krw" type="text" inputmode="numeric" class="num" placeholder="예: 965,631">
         <div class="conv num" id="e-krw-rate"></div>
       </div>
-      <label>결제자</label>
+      <label>결제수단</label>
+      <div class="seg" id="e-paysrc"><button type="button" data-ps="wallet" class="on">공동 트레블월렛</button><button type="button" data-ps="personal">개인 결제</button></div>
+      <label>결제자 (누가 긁었나)</label>
       <div class="memrow" id="e-payer"></div>
       <label>분담 방식</label>
       <div class="seg" id="e-splitmode"><button type="button" data-sm="even" class="on">균등</button><button type="button" data-sm="group">그룹</button><button type="button" data-sm="custom">커스텀</button></div>
@@ -1059,12 +1062,13 @@
       g.items.forEach(e => {
         const cnt = shareCount(e), a = Number(e.amount)||0;
         const splitLbl = e.groups ? ("그룹 분배 " + cnt + "인") : (isCustom(e) ? ("커스텀 " + cnt + "인") : (cnt + "인 분담 · 1인 ₩" + fmt(jKrw(a / (cnt||1)))));
+        const psTag = e.paySrc === "personal" ? '<span class="pstag">개인</span>' : "";
         const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
           ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
         h += '<div class="card erow" data-id="' + esc(e.id) + '">' +
           '<span class="tile ' + (CAT_TILE2[e.cat] || "t-etc") + '">' + (CAT_EMO[e.cat] || "🧾") + "</span>" +
           '<div class="bd"><div class="nm">' + esc(e.memo || e.cat) + "</div>" +
-          '<div class="who">' + avHtml(e.payer) + '<span class="lbl">' + esc(e.payer || "?") + " 결제 · " + splitLbl + "</span></div></div>" +
+          '<div class="who">' + avHtml(e.payer) + '<span class="lbl">' + esc(e.payer || "?") + " 결제 · " + splitLbl + "</span>" + psTag + "</div></div>" +
           rc +
           '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(jKrw(e.amount)) + "</div></div></div>";
       });
@@ -1072,25 +1076,36 @@
     expBody.innerHTML = h;
   }
 
-  /* 렌더: 정산 (v1 tabSettle + 잔차 흡수 이식) */
+  /* 렌더: 정산 (회비 기반 · 원화) — 트레블월렛 결제는 결제자 무관, 각자 (낸 회비+개인결제)−(분담 소진) */
   function renderSettle(){
     const EX = entries.filter(e => e.cat !== "충전");
-    if (!EX.length){ expBody.innerHTML = '<div class="card empty2">정산할 데이터가 없습니다.</div>'; return; }
-    const net = {}; MEMBERS.forEach(m => net[m] = 0);
-    EX.forEach(e => { const a = Number(e.amount)||0; if (e.payer != null) net[e.payer] = (net[e.payer]||0) + a;
-      const sh = shareOf(e); Object.keys(sh).forEach(m => { net[m] = (net[m]||0) - sh[m]; }); });   // 커스텀/균등 통합
-    const b = burdenMap(EX);
-    let h = '<div class="cap" style="display:block;padding:4px 4px 8px">멤버별 부담 · 차액</div>';
-    Object.keys(net).forEach(m => {
-      const w = jKrw(net[m]);
+    if (!EX.length && !fundItems.length){ expBody.innerHTML = '<div class="card empty2">정산할 데이터가 없습니다.</div>'; return; }
+    // 실효환율(₩/¥): 충전 실지불원화 합 ÷ 충전 엔화 합, 없으면 앱 환율
+    const chs = entries.filter(e => e.cat === "충전");
+    const totKrw = chs.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);
+    const totYen = chs.reduce((s,e) => s + (Number(e.amount)||0), 0);
+    const effRate = totYen > 0 ? totKrw/totYen : (fxK/fxJ);
+    const y2k = y => y * effRate;   // 엔화 → 원화(실효환율)
+    // net(원화) = 낸 것(회비 각출 + 개인결제) − 쓴 것(분담 소진). 트레블월렛 결제는 payer 채권 없음
+    const net = {}, paid = {}, used = {}; MEMBERS.forEach(m => { net[m]=0; paid[m]=0; used[m]=0; });
+    fundItems.forEach(f => { const m = f.payer; if (m && net[m] != null){ const k = Number(f.krw)||0; net[m]+=k; paid[m]+=k; } });
+    EX.forEach(e => {
+      const sh = shareOf(e);
+      Object.keys(sh).forEach(m => { if (net[m] != null){ const k = y2k(sh[m]); net[m]-=k; used[m]+=k; } });
+      if (e.paySrc === "personal" && e.payer != null && net[e.payer] != null){ const k = y2k(Number(e.amount)||0); net[e.payer]+=k; paid[e.payer]+=k; }
+    });
+    let h = '<div class="empty2" style="padding:6px 4px 10px;text-align:left">회비 각출 + 개인결제 − 분담 소진 기준 · 트레블월렛(공동) 결제는 결제자와 무관 · 엔화는 실효환율(¥100=₩' + fmt(y2k(100)) + ') 환산</div>';
+    h += '<div class="cap" style="display:block;padding:2px 4px 8px">멤버별 정산</div>';
+    MEMBERS.forEach(m => {
+      const w = net[m];
       const lbl = w > 1 ? "+₩" + fmt(w) : (w < -1 ? "−₩" + fmt(-w) : "정산 완료");
       const cls = w > 1 ? "net-plus" : (w < -1 ? "net-minus" : "");
       h += '<div class="card netrow">' + avHtml(m) +
-        '<div><div class="nm">' + esc(m) + '</div><div class="s num">부담 ₩' + fmt(jKrw(b[m]||0)) + "</div></div>" +
+        '<div><div class="nm">' + esc(m) + '</div><div class="s num">낸 ₩' + fmt(paid[m]) + " · 쓴 ₩" + fmt(used[m]) + "</div></div>" +
         '<span class="net num ' + cls + '">' + lbl + "</span></div>";
     });
     const cred = [], debt = [];
-    Object.keys(net).forEach(m => { const w = jKrw(net[m]); if (w > 1) cred.push({ m, v:w }); else if (w < -1) debt.push({ m, v:-w }); });
+    MEMBERS.forEach(m => { const w = net[m]; if (w > 1) cred.push({ m, v:w }); else if (w < -1) debt.push({ m, v:-w }); });
     cred.sort((a,b2) => b2.v - a.v); debt.sort((a,b2) => b2.v - a.v);
     const tr = []; let ci = 0, di = 0;
     while (ci < cred.length && di < debt.length){
@@ -1107,7 +1122,7 @@
         .forEach(t => { h += '<div class="card payrow">' + avHtml(t.from) + '<span class="arrow">→</span>' + avHtml(t.to) +
           '<span class="nm">' + esc(t.from) + " → " + esc(t.to) + '</span><span class="amt num">₩' + fmt(t.amt) + "</span></div>"; });
     }
-    h += '<div class="empty2" style="padding:10px">결제액 − (항목별 1/참여자수) 분담 기준 · 마지막 건이 반올림 잔차 흡수</div>';
+    h += '<div class="empty2" style="padding:10px">양수=돌려받을(회비 남음) · 음수=더 낼 · 회비 미입력 시 소진만 반영</div>';
     expBody.innerHTML = h;
   }
 
@@ -1133,14 +1148,15 @@
   function openDlg(e){
     editingId = e ? e.id : null; rcFile = null;
     draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"", krw:(e.krw!=null?String(e.krw):""),
-                  splitMode:(e.groups?"group":(e.splits?"custom":"even")), custom: parseSplits(e.splits), groups: parseGroups(e.groups) }
-              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"", splitMode:"even", custom:{}, groups:{} };
+                  splitMode:(e.groups?"group":(e.splits?"custom":"even")), custom: parseSplits(e.splits), groups: parseGroups(e.groups), paySrc:(e.paySrc==="personal"?"personal":"wallet") }
+              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"", splitMode:"even", custom:{}, groups:{}, paySrc:"wallet" };
     $("#edlg-ttl").textContent = e ? "경비 수정" : "경비 추가";
     $("#e-amt").value = draft.amount ? fmt(draft.amount) : "";
     $("#e-date").value = draft.date || todayISO();
     $("#e-memo").value = draft.memo;
     $("#e-cats").innerHTML = CATS.map(c => '<button type="button" data-c="' + c + '"' + (c === draft.cat ? ' class="on"' : "") + ">" + CAT_EMO[c] + " " + c + "</button>").join("");
     $("#e-krw").value = draft.krw ? fmt(draft.krw) : "";
+    $("#e-paysrc").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.ps === draft.paySrc));
     memBtns($("#e-payer"), [draft.payer]);
     memBtns($("#e-parts"), draft.parts);
     $("#e-del").style.display = e ? "" : "none";
@@ -1214,6 +1230,8 @@
   $("#e-memo").addEventListener("input", () => { draft.memo = $("#e-memo").value; });
   $("#e-cats").addEventListener("click", ev => { const btn = ev.target.closest("button"); if (!btn) return;
     draft.cat = btn.dataset.c; $("#e-cats").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === btn)); krwToggle(); });
+  $("#e-paysrc").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return;
+    draft.paySrc = b.dataset.ps; $("#e-paysrc").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); });
   $("#e-payer").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
     draft.payer = el.dataset.m; memBtns($("#e-payer"), [draft.payer]); });
   $("#e-parts").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
@@ -1262,7 +1280,7 @@
       const entry = { id, date:draft.date, cat:draft.cat, amount:amt, payer:draft.payer, parts:saveParts,
         memo:(draft.memo||"").slice(0,200), receipt:receiptUrl||"", clientId:"c" + Date.now(),
         krw: (draft.cat === "충전" && num(draft.krw)) ? num(draft.krw) : null,  // 충전만 실지불 원화 저장
-        splits: splits, groups: groupsStr };  // splits=인별금액(정산), groups=그룹배정(복원)
+        splits: splits, groups: groupsStr, paySrc: draft.paySrc };  // splits=인별금액(정산), groups=그룹배정(복원), paySrc=결제수단
       return postEntry({ action, token:TOKEN, entry }).then(r => {
         if (r && r.ok === false){
           const em = r.error === "bad amount" ? "금액이 한도(2천만엔)를 초과했습니다"
@@ -1317,7 +1335,7 @@
   function expEnter(){ loadCacheE();
     if (entries.length) renderExp();
     else expBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
-    refresh().then(() => { if (expVisible()) renderExp(); }); }
+    Promise.all([refresh(), fundList()]).then(() => { if (expVisible()) renderExp(); }); }   // 회비 각출도 로드(정산 반영)
 
   /* ═══════════ 잔액·환율(V4) — 경비 데이터 재사용 ═══════════ */
   const balBody = $("#bal-body");
