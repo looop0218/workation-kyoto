@@ -191,6 +191,14 @@
   /* ── 다이얼로그 ── */
   .dlgwrap{position:fixed;inset:0;z-index:70;display:none;}
   .dlgwrap.open{display:block;}
+  /* e티켓·첨부 앱 내 뷰어(구글 Drive preview iframe) */
+  .docv{position:fixed;inset:0;z-index:9999;display:none;flex-direction:column;background:rgba(15,23,42,.94);}
+  .docv.open{display:flex;}
+  .docv-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top,0px));}
+  .docv-ttl{font-size:13.5px;font-weight:800;color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .docv-open{color:#fff;font-size:12px;font-weight:700;text-decoration:none;padding:7px 11px;border:1px solid rgba(255,255,255,.4);border-radius:9px;flex:0 0 auto;}
+  .docv-x{width:34px;height:34px;border:0;border-radius:9px;background:rgba(255,255,255,.18);color:#fff;font-size:16px;line-height:1;cursor:pointer;flex:0 0 auto;}
+  .docv-frame{flex:1;width:100%;border:0;background:#fff;}
   .dlgwrap .back{position:absolute;inset:0;background:rgba(0,0,0,.55);}
   .dlg{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:var(--r-xl) var(--r-xl) 0 0;
     padding:6px 18px calc(18px + var(--safe-b));max-height:90vh;overflow-y:auto;box-shadow:0 -8px 40px rgba(0,0,0,.25);}
@@ -493,6 +501,15 @@
       <div class="dlgbtns"><button class="del" id="e-del" style="display:none">삭제</button><button class="cta" id="e-save">저장</button></div>
     </div>
   </div>
+</div>
+
+<div class="docv" id="docv">
+  <div class="docv-bar">
+    <span class="docv-ttl" id="docv-ttl">첨부 미리보기</span>
+    <a class="docv-open" id="docv-open" target="_blank" rel="noopener noreferrer">새 탭 ↗</a>
+    <button class="docv-x" id="docv-x" type="button" aria-label="닫기">✕</button>
+  </div>
+  <iframe class="docv-frame" id="docv-frame" title="첨부 미리보기"></iframe>
 </div>
 
 <script>
@@ -1495,8 +1512,8 @@
     bkBody.innerHTML = list.map(e => {
       const t = BK[e.type] || { emo:"🎫", lbl:e.type, tile:"t-etc" };
       const atts = bkParseAtt(e.attachments);
-      const chips = atts.map(a => '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + encodeURIComponent(a.fileId) + '/view">' +
-        (String(a.mime).indexOf("pdf") >= 0 ? "📄" : "🖼") + " " + (a.size ? Math.max(1, Math.round(a.size/1024)) + "KB" : "보기") + "</a>").join("");
+      const chips = atts.map(a => { const isPdf = String(a.mime).indexOf("pdf") >= 0; return '<a class="chip" data-rc="1" data-doc="' + encodeURIComponent(a.fileId) + '" data-ttl="' + esc((isPdf ? "📄 " : "🖼 ") + (e.title || t.lbl)) + '" target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + encodeURIComponent(a.fileId) + '/view">' +
+        (isPdf ? "📄" : "🖼") + " " + (a.size ? Math.max(1, Math.round(a.size/1024)) + "KB" : "보기") + "</a>"; }).join("");
       const vch = /^https?:\/\//i.test(String(e.voucherUrl || "")) ? '<a class="chip" data-rc="1" target="_blank" rel="noopener noreferrer" href="' + esc(e.voucherUrl) + '">🔗 바우처</a>' : "";
       const dt = fmtDt(e.datetime);
       return '<div class="card bkrow" data-id="' + esc(e.id) + '"><span class="tile ' + t.tile + '">' + t.emo + "</span>" +
@@ -1510,10 +1527,24 @@
     else bkBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
     bkList().then(() => { if (bkVisible()) renderBk(); }); }
   bkBody.addEventListener("click", ev => {
+    const doc = ev.target.closest("[data-doc]");
+    if (doc){ ev.preventDefault(); openDocViewer(doc.dataset.doc, doc.dataset.ttl); return; }   // 첨부=앱 내 뷰어(바우처 외부링크는 data-doc 없어 새 탭 유지)
     if (ev.target.closest("[data-rc]")) return;
     const row = ev.target.closest(".bkrow");
     if (row){ const e = bkItems.find(x => String(x.id) === row.dataset.id); if (e) openBdlg(e); }
   });
+  /* e티켓·첨부 앱 내 뷰어(구글 Drive preview iframe) */
+  const docv = $("#docv");
+  function openDocViewer(fidEnc, ttl){
+    const base = "https://drive.google.com/file/d/" + fidEnc;
+    $("#docv-frame").src = base + "/preview";
+    $("#docv-open").href = base + "/view";
+    $("#docv-ttl").textContent = ttl || "첨부 미리보기";
+    docv.classList.add("open");
+  }
+  function closeDocViewer(){ if (!docv.classList.contains("open")) return; docv.classList.remove("open"); $("#docv-frame").src = "about:blank"; }
+  $("#docv-x").addEventListener("click", closeDocViewer);
+  docv.addEventListener("click", ev => { if (ev.target === docv) closeDocViewer(); });
   $("#bkseg").addEventListener("click", ev => { const b2 = ev.target.closest("button"); if (!b2) return;
     bkFilter = b2.dataset.t; $("#bkseg").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b2)); renderBk(); });
   $("#bk-refresh").addEventListener("click", () => { const rb = $("#bk-refresh"); rb.style.opacity = .45;
@@ -1800,6 +1831,7 @@
   /* ESC로 다이얼로그 닫기(데스크톱) */
   document.addEventListener("keydown", e => {
     if (e.key !== "Escape") return;
+    if (docv.classList.contains("open")){ closeDocViewer(); return; }
     if (edlg.classList.contains("open") && !busy) edlg.classList.remove("open");
     if (bdlg.classList.contains("open") && !bkBusy) bdlg.classList.remove("open");
     if (pdlg.classList.contains("open") && !pBusy) pdlg.classList.remove("open");
