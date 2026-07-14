@@ -202,7 +202,12 @@
   .pillgrid{display:flex;flex-wrap:wrap;gap:6px;}
   .pillgrid button{border:.6px solid var(--line);border-radius:999px;padding:7px 12px;font-size:12.5px;font-weight:700;color:var(--ink3);display:flex;gap:5px;align-items:center;}
   .pillgrid button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
-  .memrow{display:flex;gap:9px;}
+  .memrow{display:flex;gap:9px;flex-wrap:wrap;}
+  .csrow{display:flex;align-items:center;gap:9px;margin-bottom:7px;}
+  .csrow .av{margin:0;flex:0 0 auto;}
+  .csrow .cname{font-size:13px;font-weight:700;width:18px;flex:0 0 auto;}
+  .csrow input{flex:1;min-width:0;border:.6px solid var(--line);border-radius:8px;padding:9px 11px;font-size:14px;text-align:right;font-family:inherit;background:var(--bg);color:var(--ink);}
+  .cs-even{width:100%;margin-top:2px;border:.6px solid var(--line);border-radius:var(--r-md);padding:9px;font-size:12.5px;font-weight:700;color:var(--ink3);background:var(--bg);}
   .mem{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;}
   .mem .av{width:40px;height:40px;font-size:15px;margin:0;border:2.5px solid transparent;}
   .mem.on{color:var(--ink);}
@@ -459,8 +464,16 @@
       </div>
       <label>결제자</label>
       <div class="memrow" id="e-payer"></div>
-      <label>참여자 · 균등 분담</label>
-      <div class="memrow" id="e-parts"></div>
+      <label>분담 방식</label>
+      <div class="seg" id="e-splitmode"><button type="button" data-sm="even" class="on">균등 1/n</button><button type="button" data-sm="custom">커스텀(인별)</button></div>
+      <div id="e-even-wrap">
+        <div class="memrow" id="e-parts"></div>
+        <div class="conv num" id="e-pp"></div>
+      </div>
+      <div id="e-custom-wrap" style="display:none">
+        <div id="e-custom"></div>
+        <div class="conv num" id="e-csum"></div>
+      </div>
       <label>메모 (민감정보 금지)</label>
       <input id="e-memo" type="text" maxlength="200" placeholder="예: 도톤보리 저녁">
       <div class="rcline"><button class="ghost" id="e-rc" type="button">🧾 사진 첨부/촬영</button><span id="e-rc-st"></span></div>
@@ -998,10 +1011,18 @@
     const dt = new Date(d + "T00:00:00");
     return (dt.getMonth()+1) + "/" + dt.getDate() + " (" + DOW[dt.getDay()] + ")";
   }
+  // 항목의 분담 맵 {멤버: 분담액(엔)} — splits(커스텀) 있으면 그대로, 없으면 참여자 균등
+  function shareOf(e){
+    const a = Number(e.amount)||0;
+    if (e.splits){ const m = {}; String(e.splits).split("|").forEach(x => { const p = x.split(":"); if (p[0]) m[p[0]] = Number(p[1])||0; }); return m; }
+    const pr = (e.parts && e.parts.length) ? e.parts : MEMBERS;
+    const sh = a / pr.length, m = {}; pr.forEach(p => { m[p] = sh; }); return m;
+  }
+  const isCustom = e => !!e.splits;
+  const shareCount = e => Object.keys(shareOf(e)).length;   // 분담 인원 수
   function burdenMap(EX){
     const b = {};
-    EX.forEach(e => { const a = Number(e.amount)||0; const pr = (e.parts && e.parts.length) ? e.parts : MEMBERS;
-      const sh = a/pr.length; pr.forEach(m => { b[m] = (b[m]||0) + sh; }); });
+    EX.forEach(e => { const sh = shareOf(e); Object.keys(sh).forEach(m => { b[m] = (b[m]||0) + sh[m]; }); });
     return b;
   }
   function renderExp(){
@@ -1026,13 +1047,14 @@
       const gs = g.items.reduce((s,e) => s + (Number(e.amount)||0), 0);
       h += '<div class="egroup"><span class="cap">' + esc(dhead(g.date)) + '</span><span class="cap num" style="color:var(--ink3)">¥' + fmt(gs) + "</span></div>";
       g.items.forEach(e => {
-        const pr = (e.parts && e.parts.length) ? e.parts : MEMBERS;
+        const cnt = shareCount(e), a = Number(e.amount)||0;
+        const splitLbl = isCustom(e) ? ("커스텀 " + cnt + "인") : (cnt + "인 분담 · 1인 ₩" + fmt(jKrw(a / (cnt||1))));
         const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
           ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
         h += '<div class="card erow" data-id="' + esc(e.id) + '">' +
           '<span class="tile ' + (CAT_TILE2[e.cat] || "t-etc") + '">' + (CAT_EMO[e.cat] || "🧾") + "</span>" +
           '<div class="bd"><div class="nm">' + esc(e.memo || e.cat) + "</div>" +
-          '<div class="who">' + avHtml(e.payer) + '<span class="lbl">' + esc(e.payer || "?") + " 결제 · " + pr.length + "인 분담</span></div></div>" +
+          '<div class="who">' + avHtml(e.payer) + '<span class="lbl">' + esc(e.payer || "?") + " 결제 · " + splitLbl + "</span></div></div>" +
           rc +
           '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(jKrw(e.amount)) + "</div></div></div>";
       });
@@ -1046,8 +1068,7 @@
     if (!EX.length){ expBody.innerHTML = '<div class="card empty2">정산할 데이터가 없습니다.</div>'; return; }
     const net = {}; MEMBERS.forEach(m => net[m] = 0);
     EX.forEach(e => { const a = Number(e.amount)||0; if (e.payer != null) net[e.payer] = (net[e.payer]||0) + a;
-      const pr = (e.parts && e.parts.length) ? e.parts : MEMBERS; const sh = a/pr.length;
-      pr.forEach(m => { net[m] = (net[m]||0) - sh; }); });
+      const sh = shareOf(e); Object.keys(sh).forEach(m => { net[m] = (net[m]||0) - sh[m]; }); });   // 커스텀/균등 통합
     const b = burdenMap(EX);
     let h = '<div class="cap" style="display:block;padding:4px 4px 8px">멤버별 부담 · 차액</div>';
     Object.keys(net).forEach(m => {
@@ -1101,8 +1122,8 @@
   function conv(){ const j = num($("#e-amt").value); $("#e-conv").textContent = j ? ("≈ ₩" + fmt(jKrw(j)) + " / $" + jUsd(j).toFixed(2)) : ""; }
   function openDlg(e){
     editingId = e ? e.id : null; rcFile = null;
-    draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"", krw:(e.krw!=null?String(e.krw):"") }
-              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"" };
+    draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"", krw:(e.krw!=null?String(e.krw):""), splitMode:(e.splits?"custom":"even"), custom: parseSplits(e.splits) }
+              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"", splitMode:"even", custom:{} };
     $("#edlg-ttl").textContent = e ? "경비 수정" : "경비 추가";
     $("#e-amt").value = draft.amount ? fmt(draft.amount) : "";
     $("#e-date").value = draft.date || todayISO();
@@ -1112,15 +1133,46 @@
     memBtns($("#e-payer"), [draft.payer]);
     memBtns($("#e-parts"), draft.parts);
     $("#e-del").style.display = e ? "" : "none";
-    rcState(); conv(); krwToggle();
+    rcState(); conv(); krwToggle(); splitRender();
     edlg.classList.add("open");
   }
+  /* 분담 방식(균등/커스텀) */
+  function parseSplits(s){ const m = {}; String(s||"").split("|").forEach(x => { const p = x.split(":"); if (p[0]) m[p[0]] = Number(p[1])||0; }); return m; }
+  function ppUpdate(){ const amt = num($("#e-amt").value), n = draft.parts.length;
+    $("#e-pp").textContent = n ? ("1인당 ₩" + fmt(jKrw(amt/n)) + " · ¥" + fmt(amt/n)) : "참여자를 선택하세요"; }
+  function csumUpdate(){ const amt = num($("#e-amt").value), sum = MEMBERS.reduce((s,m) => s + (draft.custom[m]||0), 0), d = amt - sum;
+    $("#e-csum").textContent = "분담 합 ¥" + fmt(sum) + " / 총액 ¥" + fmt(amt) + (d === 0 ? " ✓ 맞음" : (d > 0 ? " · 남음 ¥" + fmt(d) : " · 초과 ¥" + fmt(-d))); }
+  function renderCustom(){
+    $("#e-custom").innerHTML = MEMBERS.map(m => { const i = Math.max(0, MEMBERS.indexOf(m));
+      return '<div class="csrow"><span class="av" style="background:' + AV_COLORS[i % AV_COLORS.length] + '">' + esc(String(m).slice(0,1)) + '</span><span class="cname">' + esc(m) + '</span>' +
+        '<input class="csamt num" data-m="' + esc(m) + '" inputmode="numeric" placeholder="0" value="' + (draft.custom[m] ? fmt(draft.custom[m]) : "") + '"></div>'; }).join("") +
+      '<button type="button" class="cs-even" id="e-cs-even">금액 있는 사람끼리 균등 채우기</button>';
+    csumUpdate();
+  }
+  function splitRender(){
+    const custom = draft.splitMode === "custom";
+    $("#e-splitmode").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.sm === draft.splitMode));
+    $("#e-even-wrap").style.display = custom ? "none" : "";
+    $("#e-custom-wrap").style.display = custom ? "" : "none";
+    if (custom) renderCustom(); else ppUpdate();
+  }
+  $("#e-splitmode").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return;
+    draft.splitMode = b.dataset.sm; splitRender(); });
+  $("#e-custom").addEventListener("input", ev => { const inp = ev.target.closest(".csamt"); if (!inp) return;
+    draft.custom[inp.dataset.m] = num(inp.value); csumUpdate(); });
+  $("#e-custom").addEventListener("click", ev => { if (!ev.target.closest("#e-cs-even")) return;
+    const amt = num($("#e-amt").value); let who = MEMBERS.filter(m => draft.custom[m] > 0); if (!who.length) who = MEMBERS.slice();
+    const each = Math.floor(amt / who.length); let acc = 0;
+    who.forEach((m,i) => { const v = (i === who.length-1) ? (amt - acc) : each; draft.custom[m] = v; acc += v; });
+    MEMBERS.forEach(m => { if (who.indexOf(m) < 0) draft.custom[m] = 0; });
+    renderCustom(); });
   function krwToggle(){
     $("#e-krw-wrap").style.display = (draft.cat === "충전") ? "" : "none";
     const j = num($("#e-amt").value), k = num($("#e-krw").value);
     $("#e-krw-rate").textContent = (j && k) ? ("실효환율 ¥100 = ₩" + fmt(k / j * 100)) : "";
   }
-  $("#e-amt").addEventListener("input", () => { draft.amount = String(num($("#e-amt").value)); conv(); krwToggle(); });
+  $("#e-amt").addEventListener("input", () => { draft.amount = String(num($("#e-amt").value)); conv(); krwToggle();
+    if (draft.splitMode === "custom") csumUpdate(); else ppUpdate(); });
   $("#e-krw").addEventListener("input", () => { draft.krw = String(num($("#e-krw").value)); krwToggle(); });
   $("#e-date").addEventListener("change", () => { draft.date = $("#e-date").value; });
   $("#e-memo").addEventListener("input", () => { draft.memo = $("#e-memo").value; });
@@ -1131,7 +1183,7 @@
   $("#e-parts").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
     const m = el.dataset.m, i = draft.parts.indexOf(m);
     if (i >= 0) draft.parts.splice(i, 1); else draft.parts.push(m);
-    el.classList.toggle("on"); });
+    el.classList.toggle("on"); ppUpdate(); });
   $("#e-rc").addEventListener("click", () => fileIn.click());
   fileIn.addEventListener("change", () => {
     const f = fileIn.files && fileIn.files[0]; if (!f) return;
@@ -1147,7 +1199,17 @@
     if (busy) return;
     const amt = num($("#e-amt").value);
     if (!amt){ toast("금액을 입력하세요"); return; }
-    if (!draft.parts.length){ toast("참여자를 선택하세요"); return; }
+    let splits = "", saveParts;
+    if (draft.splitMode === "custom"){
+      saveParts = MEMBERS.filter(m => draft.custom[m] > 0);
+      const sum = saveParts.reduce((s,m) => s + draft.custom[m], 0);
+      if (!saveParts.length){ toast("커스텀 분담 금액을 입력하세요"); return; }
+      if (Math.abs(sum - amt) >= 1){ toast("분담 합 ¥" + fmt(sum) + " 이 총액 ¥" + fmt(amt) + " 과 달라요"); return; }
+      splits = saveParts.map(m => m + ":" + Math.round(draft.custom[m])).join("|");
+    } else {
+      if (!draft.parts.length){ toast("참여자를 선택하세요"); return; }
+      saveParts = draft.parts.slice();
+    }
     if (!configured()){ toast("연동 설정이 필요합니다 (저장 안 됨)"); return; }
     const id = editingId || ("e" + Date.now() + Math.floor(Math.random()*1e4));
     const action = editingId ? "update" : "add";
@@ -1156,9 +1218,10 @@
     const done = (ok, msg) => { busy = false; btn.disabled = false; btn.textContent = "저장";
       if (msg) toast(msg); if (ok){ edlg.classList.remove("open"); renderExp(); } };
     const doSave = receiptUrl => {
-      const entry = { id, date:draft.date, cat:draft.cat, amount:amt, payer:draft.payer, parts:draft.parts.slice(),
+      const entry = { id, date:draft.date, cat:draft.cat, amount:amt, payer:draft.payer, parts:saveParts,
         memo:(draft.memo||"").slice(0,200), receipt:receiptUrl||"", clientId:"c" + Date.now(),
-        krw: (draft.cat === "충전" && num(draft.krw)) ? num(draft.krw) : null };  // 충전만 실지불 원화 저장
+        krw: (draft.cat === "충전" && num(draft.krw)) ? num(draft.krw) : null,  // 충전만 실지불 원화 저장
+        splits: splits };  // 커스텀 분할(빈값이면 균등)
       return postEntry({ action, token:TOKEN, entry }).then(r => {
         if (r && r.ok === false){
           const em = r.error === "bad amount" ? "금액이 한도(2천만엔)를 초과했습니다"
