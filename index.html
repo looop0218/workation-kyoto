@@ -1090,9 +1090,12 @@
     const net = {}, paid = {}, used = {}; MEMBERS.forEach(m => { net[m]=0; paid[m]=0; used[m]=0; });
     fundItems.forEach(f => { const m = f.payer; if (m && net[m] != null){ const k = Number(f.krw)||0; net[m]+=k; paid[m]+=k; } });
     EX.forEach(e => {
+      const personal = e.paySrc === "personal";
+      // 개인결제인데 결제자가 멤버 밖(이상 데이터)이면 소진·채권을 함께 스킵 — 비대칭 반영 방지
+      if (personal && !(e.payer != null && net[e.payer] != null)) return;
       const sh = shareOf(e);
       Object.keys(sh).forEach(m => { if (net[m] != null){ const k = y2k(sh[m]); net[m]-=k; used[m]+=k; } });
-      if (e.paySrc === "personal" && e.payer != null && net[e.payer] != null){ const k = y2k(Number(e.amount)||0); net[e.payer]+=k; paid[e.payer]+=k; }
+      if (personal){ const k = y2k(Number(e.amount)||0); net[e.payer]+=k; paid[e.payer]+=k; }
     });
     let h = '<div class="empty2" style="padding:6px 4px 10px;text-align:left">회비 각출 + 개인결제 − 분담 소진 기준 · 트레블월렛(공동) 결제는 결제자와 무관 · 엔화는 실효환율(¥100=₩' + fmt(y2k(100)) + ') 환산</div>';
     h += '<div class="cap" style="display:block;padding:2px 4px 8px">멤버별 정산</div>';
