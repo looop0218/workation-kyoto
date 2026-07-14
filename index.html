@@ -1239,20 +1239,10 @@
       h += '<div class="fg"><i style="width:' + Math.min(exPct,100) + '%"></i></div>' +
         '<div class="fundsplit"><div class="c"><div class="l">환전함 (' + exPct + '%)</div><div class="n ex num">₩' + fmt(exch) + "</div></div>" +
         '<div class="c"><div class="l">미환전 잔여</div><div class="n re num">₩' + fmt(unexch) + "</div></div></div>";
-    } else h += '<div class="s" style="font-size:11.5px;color:var(--muted);margin-top:6px">아직 입금된 회비가 없어요 — 아래 버튼으로 시작하세요.</div>';
+    } else h += '<div class="s" style="font-size:11.5px;color:var(--muted);margin-top:6px">아직 입금된 회비가 없어요 — 맨 아래에서 입금하세요.</div>';
+    h += "</div>";   // 회비 카드는 요약만(최상위). 낸사람·입금·＋버튼은 하단으로.
     const byPayer = {}; fundItems.forEach(f => { const p = f.payer || "?"; byPayer[p] = (byPayer[p]||0) + (Number(f.krw)||0); });
     const payers = Object.keys(byPayer);
-    if (payers.length) h += '<div class="fundby">' + payers.map(p => '<span class="chip">' + avHtml(p) + " ₩" + fmt(byPayer[p]) + "</span>").join("") + "</div>";
-    h += '<button class="fund-add" data-fund-add="1">＋ 회비 입금</button></div>';
-    if (fundItems.length){
-      h += '<div class="cap" style="display:block;padding:2px 4px 6px">회비 입금 내역</div>';
-      fundItems.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(f => {
-        h += '<div class="card erow" data-fund="' + esc(f.id) + '"><span class="tile t-charge">🏦</span>' +
-          '<div class="bd"><div class="nm">' + esc(f.memo || "회비 입금") + '</div><div class="who">' + avHtml(f.payer) + '<span class="lbl num">' + esc(f.payer || "?") + " · " + esc(dhead(f.date)) + "</span></div></div>" +
-          '<div class="amt"><div class="j num">₩' + fmt(f.krw) + "</div></div></div>";
-      });
-      h += '<div class="cap" style="display:block;padding:14px 4px 6px">트레블월렛 (엔화)</div>';
-    }
     h += '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
       '<div class="s num">' + (charge > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(bal)) + " · 환율 " +
       (fxLive ? "실시간" : "기본(" + esc(String(FXD2.updated || "내장").replace(" (실시간)", "")) + ")") + "</div>" +
@@ -1282,6 +1272,15 @@
         '<div class="bd"><div class="nm">' + esc(e.memo || "충전") + '</div><div class="who"><span class="lbl num">' + esc(dhead(e.date)) + " · " + esc(e.payer || "?") + "</span></div></div>" + rc +
         '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(kw) + '</div><div class="k num" style="font-size:9px;opacity:.8">' + esc(rateS) + "</div></div></div>";
     });
+    // ── 하단: 회비 입금 관리(내역·낸사람·＋버튼) ──
+    h += '<div class="cap" style="display:block;padding:16px 4px 6px">회비 입금</div>';
+    if (payers.length) h += '<div class="fundby" style="margin:0 0 9px">' + payers.map(p => '<span class="chip">' + avHtml(p) + " ₩" + fmt(byPayer[p]) + "</span>").join("") + "</div>";
+    if (fundItems.length) fundItems.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(f => {
+      h += '<div class="card erow" data-fund="' + esc(f.id) + '"><span class="tile t-charge">🏦</span>' +
+        '<div class="bd"><div class="nm">' + esc(f.memo || "회비 입금") + '</div><div class="who">' + avHtml(f.payer) + '<span class="lbl num">' + esc(f.payer || "?") + " · " + esc(dhead(f.date)) + "</span></div></div>" +
+        '<div class="amt"><div class="j num">₩' + fmt(f.krw) + "</div></div></div>";
+    });
+    h += '<button class="fund-add" data-fund-add="1">＋ 회비 입금</button>';
     balBody.innerHTML = h;
   }
   balBody.addEventListener("click", ev => {
