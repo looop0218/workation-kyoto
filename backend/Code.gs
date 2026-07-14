@@ -141,10 +141,11 @@ function _seenToken(token){
 function _sheet(){
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sh = ss.getSheetByName(SHEET);
-  if(!sh){ sh = ss.insertSheet(SHEET); sh.appendRow(["id","date","cat","amount","payer","parts","memo","ts","receipt","deleted","krw","splits"]); return sh; }
+  if(!sh){ sh = ss.insertSheet(SHEET); sh.appendRow(["id","date","cat","amount","payer","parts","memo","ts","receipt","deleted","krw","splits","groups"]); return sh; }
   if(String(sh.getRange(1,10).getValue()) === ""){ sh.getRange(1,10).setValue("deleted"); }  // 소프트삭제 컬럼(10열) 보강 — 빈 셀일 때만(수동 확장열 덮어쓰기 방지)
   if(String(sh.getRange(1,11).getValue()) === ""){ sh.getRange(1,11).setValue("krw"); }        // 충전 실지불 원화(11열) 보강
   if(String(sh.getRange(1,12).getValue()) === ""){ sh.getRange(1,12).setValue("splits"); }      // 커스텀 분할(12열) 보강 — "멤버:엔|멤버:엔"
+  if(String(sh.getRange(1,13).getValue()) === ""){ sh.getRange(1,13).setValue("groups"); }      // 그룹 분배(13열) 보강 — "멤버:그룹번호|…"(수정 복원용)
   return sh;
 }
 function _items(){
@@ -153,7 +154,7 @@ function _items(){
     out.push({ id:String(r[0]), date:String(r[1]), cat:String(r[2]), amount:Number(r[3])||0,
                payer:String(r[4]), parts:String(r[5]||"").split("|").filter(String), memo:String(r[6]||""),
                receipt:String(r[8]||""), krw:(r[10]===""||r[10]==null)?null:Number(r[10]),   // 충전 실지불 원화(없으면 null)
-               splits:String(r[11]||"") });   // 커스텀 분할("멤버:엔|…", 없으면 "" → 균등)
+               splits:String(r[11]||""), groups:String(r[12]||"") });   // splits=커스텀 분할, groups=그룹 배정(복원용)
   }
   return out;
 }
@@ -169,6 +170,17 @@ function _splits(s){
     var name = String(m[0]||"").replace(/[|:]/g,"").slice(0,20);
     var val = Math.round(Number(m[1]));
     if(name && val>=0 && val<=20000000 && out.length<12) out.push(name+":"+val);
+  });
+  return out.join("|");
+}
+// 그룹 배정 정화: "멤버:그룹번호(1~12)" 쌍만 통과(수정 복원용)
+function _groups(s){
+  var out = [];
+  String(s||"").split("|").forEach(function(pair){
+    var m = String(pair).split(":");
+    var name = String(m[0]||"").replace(/[|:]/g,"").slice(0,20);
+    var g = parseInt(m[1], 10);
+    if(name && g>=1 && g<=12 && out.length<12) out.push(name+":"+g);
   });
   return out.join("|");
 }
@@ -229,8 +241,9 @@ function _expensesPost(d){
     var rc = RECEIPT_URL_RE.test(String(en.receipt||"")) ? String(en.receipt) : "";  // 화이트리스트 통과분만
     var krw = (en.krw!=null && Number(en.krw)>=0 && Number(en.krw)<=100000000) ? Math.round(Number(en.krw)) : "";  // 충전 실지불 원화(선택)
     var splits = _splits(en.splits);   // 커스텀 분할 정화("멤버:엔|…"), 빈값이면 균등
-    // 10열=deleted 자리는 ""(살아있는 행 갱신/신규라 무삭제), 11열=krw, 12열=splits
-    var row = [String(en.id), String(en.date), en.cat, amt, String(en.payer||""), parts, memo, new Date(), rc, "", krw, splits];
+    var groups = _groups(en.groups);   // 그룹 배정 정화("멤버:그룹번호|…"), 수정 복원용
+    // 10열=deleted 자리는 ""(살아있는 행 갱신/신규라 무삭제), 11열=krw, 12열=splits, 13열=groups
+    var row = [String(en.id), String(en.date), en.cat, amt, String(en.payer||""), parts, memo, new Date(), rc, "", krw, splits, groups];
     var v = sh.getDataRange().getValues();
     for(var i=1;i<v.length;i++){
       if(v[i][9]) continue;                                                 // 소프트삭제 행은 없는 것으로(부활 방지)
