@@ -57,8 +57,10 @@ var BK_URL_RE  = /^https?:\/\//i;                                          // vo
 var BK_LEN     = { title:120, sub:120, detail:200, memo:300 };             // 필드 길이컷
 
 /* ── 맛집후보(places) 시트: 팀원 발굴 맛집 수집 ──
- *  헤더: id | name | region | lat | lng | foundBy | url | memo | status | ts | deleted
- *  status ∈ {candidate(기본, 미채점), scored}. 좌표는 일본 범위 밖이면 저장 안 함(리스트 전용).
+ *  헤더: id | name | region | lat | lng | foundBy | url | memo | status | ts | deleted | rating | reviews | taste | grp | resv
+ *  status ∈ {candidate(미채점), scored(팀 3축 완비)} — 백엔드가 taste/grp/resv 유무로 파생(클라 status 무시).
+ *  rating=구글 평점(0~5, 별도 관리) · reviews=리뷰수 · taste/grp/resv=팀 평가 3축(맛/4인/예약, 각 1~5).
+ *  좌표는 일본 범위 밖이면 저장 안 함(리스트 전용). 신규 5열은 deleted 뒤에 증설(구 시트 무중단 보강).
  */
 var PL_SHEET   = "맛집후보";
 var PL_HEADERS = ["id","name","region","lat","lng","foundBy","url","memo","status","ts"];
@@ -111,6 +113,8 @@ function _out(obj, cb){
 function _route(v){ v = String(v||""); return (v === "bookings" || v === "places" || v === "itinerary" || v === "fund") ? v : "expenses"; }
 // 숫자 범위 검증(밖이면 "" 반환 → 저장 안 함)
 function _numRange(v, lo, hi){ var n = Number(v); return (n >= lo && n <= hi) ? n : ""; }
+// 팀 평가 1~5 정수(밖/빈값 → "" = 미채점)
+function _score15(v){ if(v === "" || v == null) return ""; var n = Math.round(Number(v)); return (n >= 1 && n <= 5) ? n : ""; }
 
 /* ── 감사로그("로그" 시트) — 로그 실패가 본 동작을 깨지 않도록 전부 try/catch ── */
 var LOG_SHEET_NAME = "로그";
@@ -387,15 +391,23 @@ function _plSheet(){
   var sh = ss.getSheetByName(PL_SHEET);
   if(!sh){ sh = ss.insertSheet(PL_SHEET); sh.appendRow(PL_HEADERS.concat(["deleted"])); return sh; }
   if(String(sh.getRange(1, PL_HEADERS.length+1).getValue()) === ""){ sh.getRange(1, PL_HEADERS.length+1).setValue("deleted"); }  // 소프트삭제 컬럼(11열) 보강
+  // 신규 5열(12~16) 보강 — 빈 셀일 때만(수동 확장열 덮어쓰기 방지)
+  if(String(sh.getRange(1,12).getValue()) === ""){ sh.getRange(1,12).setValue("rating"); }   // 구글 평점(0~5)
+  if(String(sh.getRange(1,13).getValue()) === ""){ sh.getRange(1,13).setValue("reviews"); }  // 리뷰수
+  if(String(sh.getRange(1,14).getValue()) === ""){ sh.getRange(1,14).setValue("taste"); }    // 팀 맛(1~5)
+  if(String(sh.getRange(1,15).getValue()) === ""){ sh.getRange(1,15).setValue("grp"); }      // 팀 4인석(1~5)
+  if(String(sh.getRange(1,16).getValue()) === ""){ sh.getRange(1,16).setValue("resv"); }     // 팀 예약(1~5)
   return sh;
 }
 function _plItems(){
   var v = _plSheet().getDataRange().getValues(), out = [];
-  // 열: 0 id|1 name|2 region|3 lat|4 lng|5 foundBy|6 url|7 memo|8 status|9 ts|10 deleted
+  // 열: 0 id|1 name|2 region|3 lat|4 lng|5 foundBy|6 url|7 memo|8 status|9 ts|10 deleted|11 rating|12 reviews|13 taste|14 grp|15 resv
   for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[10]) continue;   // 소프트삭제 행 제외
     out.push({ id:String(r[0]), name:String(r[1]||""), region:String(r[2]||""),
                lat:(r[3]===""||r[3]==null)?null:Number(r[3]), lng:(r[4]===""||r[4]==null)?null:Number(r[4]),
-               foundBy:String(r[5]||""), url:String(r[6]||""), memo:String(r[7]||""), status:String(r[8]||"candidate") });
+               foundBy:String(r[5]||""), url:String(r[6]||""), memo:String(r[7]||""), status:String(r[8]||"candidate"),
+               rating:(r[11]===""||r[11]==null)?null:Number(r[11]), reviews:(r[12]===""||r[12]==null)?null:Number(r[12]),
+               taste:(r[13]===""||r[13]==null)?null:Number(r[13]), grp:(r[14]===""||r[14]==null)?null:Number(r[14]), resv:(r[15]===""||r[15]==null)?null:Number(r[15]) });
   }
   return out;
 }
@@ -420,12 +432,20 @@ function _placesPost(d){
     var foundBy = String(en.foundBy||"").slice(0, 12);
     var url  = BK_URL_RE.test(String(en.url||"")) ? String(en.url).slice(0,2000) : "";  // http(s)만
     var memo = String(en.memo||"").slice(0, PL_LEN.memo);
-    var status = (String(en.status||"") === "scored") ? "scored" : "candidate";
-    var row = [id, name, region, lat, lng, foundBy, url, memo, status, new Date()];
+    // 구글 평점(0~5, 소수1자리) · 리뷰수 · 팀 평가 3축(각 1~5)
+    // ★ 빈값 가드 필수: Number("")===0 이 [0,5]에 걸려 미입력이 0점으로 저장되는 것 방지(lat/lng는 0이 범위 밖이라 무사)
+    var rating = (en.rating === "" || en.rating == null) ? "" : _numRange(en.rating, 0, 5);
+    if(rating !== "") rating = Math.round(rating*10)/10;
+    var reviews = (en.reviews != null && en.reviews !== "" && Number(en.reviews) >= 0 && Number(en.reviews) <= 100000000) ? Math.round(Number(en.reviews)) : "";
+    var taste = _score15(en.taste), grp = _score15(en.grp), resv = _score15(en.resv);
+    // status는 3축 완비 여부로 파생(클라 status 무시 — 채점/미채점 진실을 데이터로 판정)
+    var status = (taste !== "" && grp !== "" && resv !== "") ? "scored" : "candidate";
+    // 열 1~16: id..ts(1~10) + deleted 자리 ""(11, 살아있는 행이므로 무삭제) + rating/reviews/taste/grp/resv(12~16)
+    var row = [id, name, region, lat, lng, foundBy, url, memo, status, new Date(), "", rating, reviews, taste, grp, resv];
     var v = sh.getDataRange().getValues();
     for(var i=1;i<v.length;i++){
       if(v[i][10]) continue;                                                // 소프트삭제 행은 없는 것으로(부활 방지)
-      if(String(v[i][0]) === id){ sh.getRange(i+1,1,1,row.length).setValues([row]); _audit(d.action,"places",id,d.token,name); return _out({ok:true, id:id}); }
+      if(String(v[i][0]) === id){ sh.getRange(i+1,1,1,row.length).setValues([row]); _audit(d.action,"places",id,d.token,name+(status==="scored"?" ★":"")); return _out({ok:true, id:id}); }
     }
     if(d.action === "update") return _out({ok:false, error:"not found"});
     sh.appendRow(row); _audit("add","places",id,d.token,name+(foundBy?(" ·"+foundBy):"")); return _out({ok:true, id:id});

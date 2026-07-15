@@ -128,6 +128,8 @@
   .fb-cand{background:var(--accent-soft);color:var(--accent-ink);}
   .foundby{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--muted);}
   .foundby .av{width:16px;height:16px;font-size:8px;border-width:1.5px;margin-left:0;}
+  .gr{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:800;color:#a16207;background:#fef9c3;border-radius:999px;padding:3px 7px;flex:0 0 auto;}
+  .gr small{font-weight:700;opacity:.72;}
   .foodbar{display:flex;align-items:center;gap:6px;padding:2px 2px 6px;flex-wrap:wrap;}
   .foodbar .seg{flex:0 0 auto;}
   .foodbar .seg button{padding:6px 10px;font-size:12px;}  /* 375px 한 줄 수납 */
@@ -227,6 +229,14 @@
   .mem .av{width:40px;height:40px;font-size:15px;margin:0;border:2.5px solid transparent;}
   .mem.on{color:var(--ink);}
   .mem.on .av{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .row2{display:flex;gap:9px;}
+  .row2>input{flex:1;min-width:0;}
+  .scrgrid{display:flex;flex-direction:column;gap:9px;margin-top:2px;}
+  .scr{display:flex;align-items:center;gap:9px;}
+  .scr>span{font-size:12.5px;font-weight:800;color:var(--ink3);width:46px;flex:0 0 auto;}
+  .scr .pk{display:flex;gap:5px;}
+  .scr .pk button{width:31px;height:31px;border:.6px solid var(--line);border-radius:9px;font-size:13px;font-weight:800;color:var(--ink3);background:var(--bg);}
+  .scr .pk button.on{background:var(--accent);border-color:var(--accent);color:#fff;}
   .rcline{display:flex;align-items:center;gap:9px;margin-top:13px;}
   .rcline .ghost{flex:0 0 auto;width:auto;padding:10px 14px;}
   .rcline span{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -423,6 +433,17 @@
       <div class="conv" id="p-geo"></div>
       <label>코멘트 (추천 이유·메뉴 등)</label>
       <input id="p-memo" type="text" maxlength="200" placeholder="예: 돈코츠 라멘, 24시간, 개별석">
+      <label>구글 평점 · 리뷰수 <small style="font-weight:600;color:var(--muted)">(별도 관리)</small></label>
+      <div class="row2">
+        <input id="p-rating" type="number" min="0" max="5" step="0.1" inputmode="decimal" placeholder="평점 예: 4.3">
+        <input id="p-reviews" type="number" min="0" step="1" inputmode="numeric" placeholder="리뷰수 예: 1240">
+      </div>
+      <label>팀 평가 <small style="font-weight:600;color:var(--muted)">(3축 모두 매기면 랭킹 합류)</small></label>
+      <div class="scrgrid" id="p-scores">
+        <div class="scr"><span>맛</span><div class="pk" data-k="taste"></div></div>
+        <div class="scr"><span>4인석</span><div class="pk" data-k="grp"></div></div>
+        <div class="scr"><span>예약</span><div class="pk" data-k="resv"></div></div>
+      </div>
       <div class="dlgbtns"><button class="del" id="p-del" style="display:none">삭제</button><button class="cta" id="p-save">저장</button></div>
     </div>
   </div>
@@ -689,13 +710,29 @@
   }
   const FB_CLS = b => b === "실내" ? "fb-in" : (b === "웨이팅" ? "fb-wait" : (b === "현금만" || b === "카드전용" ? "fb-cash" : "fb-rest"));
   let placeItems = [], foodFilter = "all", placesLoaded = false, planItems = [];
+  /* 팀 후보 채점(C): 3축(맛/4인/예약)이 모두 있으면 "채점 완료" → 큐레이션과 하나로 정렬. 구글 평점(rating)은 별도. */
+  const isScored = p => !!p && p.taste >= 1 && p.grp >= 1 && p.resv >= 1;   // 3축 모두 1~5(백엔드 규칙과 동일 — 수동편집 0/공백 방어)
+  const candTotal = p => Math.round(((Number(p.taste) + Number(p.grp) + Number(p.resv)) / 3) * 10) / 10;
+  const grBadge = p => (p && p.rating != null)
+    ? '<span class="gr">⭐' + esc(Number(p.rating).toFixed(1)) + (p.reviews != null ? ' <small>(' + fmt(p.reviews) + ')</small>' : "") + "</span>" : "";
+  // 채점된 후보를 큐레이션 stop과 같은 형태로 정규화(scores 배열 인덱스: 2=맛,3=4인,5=예약 — foodRow와 동일)
+  function candToStop(p){
+    const rc = (foodRegions.find(r => r.name === p.region) || {}).color || "#6b7280";
+    return { id:p.id, name:p.name, region:p.region, region_color:rc, memo:p.memo, lat:p.lat, lng:p.lng, badges:[],
+             scores:[0, 0, Number(p.taste), Number(p.grp), 0, Number(p.resv), 0], total:candTotal(p),
+             _team:true, foundBy:p.foundBy, rating:p.rating, reviews:p.reviews };
+  }
   function foodRow(s){
     const sc = s.scores || [];
     const bs = (s.badges || []).map(b => '<span class="badge ' + FB_CLS(b) + '">' + esc(b) + "</span>").join("");
-    return '<div class="card stop" data-id="' + esc(s.id) + '">' +
-      '<span class="rankb num" style="background:' + esc(s.region_color || "#d35400") + '">' + esc(s.rank || s.seq) + "</span>" +
+    const team = s._team ? ('<span class="foundby">' + avHtml(s.foundBy) + esc(s.foundBy) + "</span>" + grBadge(s)) : "";
+    const rankb = s._team
+      ? '<span class="rankb cand">📍</span>'
+      : '<span class="rankb num" style="background:' + esc(s.region_color || "#d35400") + '">' + esc(s.rank || s.seq) + "</span>";
+    const fb = (bs || team) ? ('<div class="fbadges">' + bs + team + "</div>") : "";
+    return '<div class="card stop' + (s._team ? " ovl" : "") + '" data-' + (s._team ? "place" : "id") + '="' + esc(s.id) + '">' + rankb +
       '<div class="bd"><div class="nm">' + esc(s.name) + '</div><div class="sub">' + esc([s.region, String(s.memo || "").replace(/^\[[^\]]*\]\s*/, "")].filter(Boolean).join(" · ")) + "</div>" +
-      (bs ? '<div class="fbadges">' + bs + "</div>" : "") + "</div>" +
+      fb + "</div>" +
       '<button class="addplan" data-addplan="' + esc(s.id) + '" title="일정에 추가">＋일정</button>' +
       (s.total ? '<span class="score num">' + esc(s.total) +
         '<br><small>맛' + esc(sc[2] != null ? sc[2] : "–") + '·4인' + esc(sc[3] != null ? sc[3] : "–") + '·예약' + esc(sc[5] != null ? sc[5] : "–") + "</small></span>" : "") + "</div>";
@@ -707,31 +744,36 @@
       '<span class="rankb cand">' + (geo ? "📍" : "✎") + "</span>" +
       '<div class="bd"><div class="nm">' + esc(p.name) + '</div>' +
       '<div class="sub">' + esc([p.region, p.memo].filter(Boolean).join(" · ")) + "</div>" +
-      '<div class="fbadges"><span class="badge fb-cand">후보</span>' + found + "</div></div>" +
+      '<div class="fbadges"><span class="badge fb-cand">후보</span>' + found + grBadge(p) + "</div></div>" +
       '<button class="addplan" data-addplan="' + esc(p.id) + '" title="일정에 추가">＋일정</button></div>';
   }
   /* 정렬·필터 상태 */
   let foodSort = "rank", foodRegion = "all", foodTags = [];
-  const FOOD_SORTS = [["rank","총점"],["taste","맛"],["grp","4인"],["resv","예약"]];
+  const FOOD_SORTS = [["rank","총점"],["taste","맛"],["grp","4인"],["resv","예약"],["rating","구글★"]];
   const FOOD_TAGS = [["아침","아침"],["점심","점심"],["저녁","저녁"],["심야","심야"],["회식","회식"],["실내","실내"],["nowait","웨이팅✕"]];
   const bracketOf = s => { const m = String(s.memo || "").match(/^\[([^\]]*)\]/); return m ? m[1] : ""; };
   const foodRegions = (() => { const seen = [];
     (foodDay ? foodDay.stops || [] : []).forEach(s => { if (s.region && !seen.some(x => x.name === s.region)) seen.push({ name:s.region, color:s.region_color || "#d35400" }); });
     return seen; })();
+  const scoredCands = () => placeItems.filter(isScored).map(candToStop);
+  function sortStops(list){
+    const sc = i => s => Number((s.scores || [])[i] || 0);
+    if (foodSort === "taste") list.sort((a,b) => sc(2)(b) - sc(2)(a) || (b.total||0) - (a.total||0));
+    else if (foodSort === "grp") list.sort((a,b) => sc(3)(b) - sc(3)(a) || (b.total||0) - (a.total||0));
+    else if (foodSort === "resv") list.sort((a,b) => sc(5)(b) - sc(5)(a) || (b.total||0) - (a.total||0));
+    else if (foodSort === "rating") list.sort((a,b) => (b.rating != null ? b.rating : -1) - (a.rating != null ? a.rating : -1) || (b.total||0) - (a.total||0));
+    else list.sort((a,b) => (b.total||0) - (a.total||0) || (a.rank || 999) - (b.rank || 999));  // 총점: 채점 후보를 큐레이션과 총점순으로 병합
+    return list;
+  }
   function foodFiltered(){
-    let list = (foodDay.stops || []).slice();
+    let list = (foodDay.stops || []).slice().concat(scoredCands());   // 채점 완료 후보를 큐레이션과 하나로
     if (foodRegion !== "all") list = list.filter(s => s.region === foodRegion);
     foodTags.forEach(t => {
       if (t === "실내") list = list.filter(s => (s.badges || []).indexOf("실내") >= 0);
       else if (t === "nowait") list = list.filter(s => (s.badges || []).indexOf("웨이팅") < 0);
       else list = list.filter(s => bracketOf(s).indexOf(t) >= 0);
     });
-    const sc = i => s => Number((s.scores || [])[i] || 0);
-    if (foodSort === "taste") list.sort((a,b) => sc(2)(b) - sc(2)(a) || b.total - a.total);
-    else if (foodSort === "grp") list.sort((a,b) => sc(3)(b) - sc(3)(a) || b.total - a.total);
-    else if (foodSort === "resv") list.sort((a,b) => sc(5)(b) - sc(5)(a) || b.total - a.total);
-    else list.sort((a,b) => (a.rank || 999) - (b.rank || 999));
-    return list;
+    return sortStops(list);
   }
   function renderFoodMap(list){
     resetLayer();
@@ -742,16 +784,21 @@
   }
   function renderFood(){
     const flt = foodFiltered();
-    renderFoodMap(foodFilter === "team" ? [] : flt);
+    renderFoodMap(foodFilter === "team" ? [] : flt.filter(s => !s._team));   // 후보 마커는 addPlaceMarkers가 담당(중복 방지)
     const n = placeItems.length;
+    const unscored = placeItems.filter(p => !isScored(p));
     let h = '<div class="foodbar"><div class="seg" id="foodseg">' +
       '<button class="' + (foodFilter === "all" ? "on" : "") + '" data-ff="all">전체</button>' +
       '<button class="' + (foodFilter === "team" ? "on" : "") + '" data-ff="team">팀추천' + (n ? (" " + n) : "") + "</button></div>" +
-      (foodFilter === "all" ? '<div class="seg">' + FOOD_SORTS.map(x =>
-        '<button class="' + (foodSort === x[0] ? "on" : "") + '" data-fs="' + x[0] + '">' + x[1] + "</button>").join("") + "</div>" : "") +
+      '<div class="seg">' + FOOD_SORTS.map(x =>
+        '<button class="' + (foodSort === x[0] ? "on" : "") + '" data-fs="' + x[0] + '">' + x[1] + "</button>").join("") + "</div>" +
       "</div>";
     if (foodFilter === "team"){
-      h += n ? placeItems.map(placeRow).join("") : '<div class="card empty2">팀원이 추가한 맛집이 아직 없어요.<br>오른쪽 아래 ＋ 맛집 추가로 시작하세요.</div>';
+      if (!n){ h += '<div class="card empty2">팀원이 추가한 맛집이 아직 없어요.<br>오른쪽 아래 ＋ 맛집 추가로 시작하세요.</div>'; }
+      else {
+        h += sortStops(scoredCands()).map(foodRow).join("");   // 채점 완료 = 점수·랭킹 표시
+        if (unscored.length){ h += '<div class="secthead"><span class="cap">미채점 후보 ' + unscored.length + '</span><i></i></div>' + unscored.map(placeRow).join(""); }
+      }
     } else {
       h += '<div class="dayseg"><button class="' + (foodRegion === "all" ? "on" : "") + '" data-fr="all">전지역</button>' +
         foodRegions.map(r => '<button class="' + (foodRegion === r.name ? "on" : "") + '" data-fr="' + esc(r.name) + '">' +
@@ -760,7 +807,7 @@
         '<button class="' + (foodTags.indexOf(t[0]) >= 0 ? "on" : "") + '" data-ft="' + t[0] + '">' + t[1] + "</button>").join("") +
         '<span class="cap num" style="align-self:center;padding:0 5px;flex:0 0 auto">' + flt.length + "곳</span></div>";
       h += flt.length ? flt.map(foodRow).join("") : '<div class="card empty2">조건에 맞는 맛집이 없습니다 — 필터를 풀어보세요.</div>';
-      if (n){ h += '<div class="secthead"><span class="cap">팀 발굴 후보 ' + n + '</span><i></i></div>' + placeItems.map(placeRow).join(""); }
+      if (unscored.length){ h += '<div class="secthead"><span class="cap">팀 발굴 후보 ' + unscored.length + '</span><i></i></div>' + unscored.map(placeRow).join(""); }
     }
     daylist.innerHTML = h;
   }
@@ -1696,17 +1743,33 @@
   }
   function openPdlg(p){
     pEditing = p ? p.id : null;
-    pDraft = p ? { foundBy: p.foundBy || MEMBERS[0] } : { foundBy: MEMBERS[0] };
+    pDraft = p ? { foundBy: p.foundBy || MEMBERS[0], scores: { taste: p.taste == null ? null : p.taste, grp: p.grp == null ? null : p.grp, resv: p.resv == null ? null : p.resv } }
+               : { foundBy: MEMBERS[0], scores: { taste: null, grp: null, resv: null } };
     $("#pdlg-ttl").textContent = p ? "맛집 후보 수정" : "맛집 추가";
     $("#p-name").value = p ? (p.name || "") : "";
     $("#p-region").value = p ? (p.region || "") : "";
     $("#p-url").value = p ? (p.url || "") : "";
     $("#p-memo").value = p ? (p.memo || "") : "";
+    $("#p-rating").value = (p && p.rating != null) ? p.rating : "";
+    $("#p-reviews").value = (p && p.reviews != null) ? p.reviews : "";
     memBtns($("#p-found"), [pDraft.foundBy]);
+    renderScorePick();
     $("#p-del").style.display = p ? "" : "none";
     pGeoHint();
     pdlg.classList.add("open");
   }
+  function renderScorePick(){
+    $("#p-scores").querySelectorAll(".pk").forEach(pk => {
+      const k = pk.dataset.k, cur = pDraft.scores[k];
+      pk.innerHTML = [1,2,3,4,5].map(nn => '<button type="button" data-n="' + nn + '"' + (cur === nn ? ' class="on"' : "") + ">" + nn + "</button>").join("");
+    });
+  }
+  $("#p-scores").addEventListener("click", ev => {
+    const b = ev.target.closest("button[data-n]"); if (!b) return;
+    const k = b.closest(".pk").dataset.k, nn = Number(b.dataset.n);
+    pDraft.scores[k] = (pDraft.scores[k] === nn) ? null : nn;   // 같은 점수 재클릭 → 해제(미채점)
+    renderScorePick();
+  });
   $("#p-found").addEventListener("click", ev => { const el = ev.target.closest(".mem"); if (!el) return;
     pDraft.foundBy = el.dataset.m; memBtns($("#p-found"), [pDraft.foundBy]); });
   $("#p-url").addEventListener("input", pGeoHint);
@@ -1719,9 +1782,12 @@
     if (!configured()){ toast("연동 설정이 필요합니다"); return; }
     const id = pEditing || ("p" + Date.now() + Math.floor(Math.random()*1e4));
     const g = parseGmap($("#p-url").value);
+    const rt = parseFloat($("#p-rating").value), rv = parseInt($("#p-reviews").value, 10), sc = pDraft.scores;
     const entry = { id, name, region: $("#p-region").value.trim(), foundBy: pDraft.foundBy,
       url: $("#p-url").value.trim(), memo: $("#p-memo").value.trim(),
-      lat: g ? g.lat : "", lng: g ? g.lng : "", status: "candidate" };
+      lat: g ? g.lat : "", lng: g ? g.lng : "",
+      rating: isNaN(rt) ? "" : rt, reviews: isNaN(rv) ? "" : rv,   // 구글 평점·리뷰수(별도)
+      taste: sc.taste == null ? "" : sc.taste, grp: sc.grp == null ? "" : sc.grp, resv: sc.resv == null ? "" : sc.resv };  // 팀 3축(status는 백엔드가 파생)
     const btn = $("#p-save"); pBusy = true; btn.disabled = true; btn.textContent = "저장 중…";
     postEntry({ action: pEditing ? "update" : "add", token: TOKEN, sheet: "places", entry }).then(r => {
       if (r && r.ok === false){ pBusy = false; btn.disabled = false; btn.textContent = "저장";
