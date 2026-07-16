@@ -1020,12 +1020,15 @@
   /* 데이터 */
   let entries = [], expTab = "list", busy = false;
   const expVisible = () => $("#v-exp").style.display !== "none";
-  const loadCacheE = () => { try { entries = JSON.parse(localStorage.getItem(LSKEY) || "[]"); } catch(e){ entries = []; } };
+  // 시트가 date 문자열("2026-06-30")을 Date로 자동변환해 "Tue Jun 30 2026…"로 돌려줌 → ISO 정규화
+  // (정렬이 요일 알파벳순으로 깨지고, 표시(dhead)·수정폼(e-date) 모두 raw 문자열에 의존하므로 로드 시 일괄 처리)
+  const normEntries = list => (list || []).map(x => Object.assign({}, x, { date: normDate(x.date) }));
+  const loadCacheE = () => { try { entries = normEntries(JSON.parse(localStorage.getItem(LSKEY) || "[]")); } catch(e){ entries = []; } };
   const saveCacheE = () => { try { localStorage.setItem(LSKEY, JSON.stringify(entries)); } catch(e){} };
   function refresh(){
     if (!configured()) return Promise.resolve();
     return jsonp("action=list&token=" + encodeURIComponent(TOKEN)).then(d => {
-      if (d && d.ok && d.items){ entries = d.items; saveCacheE(); }
+      if (d && d.ok && d.items){ entries = normEntries(d.items); saveCacheE(); }
     }).catch(() => {});
   }
 
@@ -1473,9 +1476,12 @@
         '<span class="cl">' + esc(c) + '</span><div class="track"><i style="width:' + Math.round(byCat[c]/mx*100) + '%;background:' + (CAT_COLOR[c]||"#94a3b8") + '"></i></div>' +
         '<span class="cv num">¥' + fmt(byCat[c]) + "</span></div>"; });
     }
+    // 날짜 최신순 + 같은 날짜는 입력 최신순(id에 박힌 생성 ms 타임스탬프) — 최신이 항상 위로
+    const idTs = x => { const m = /^[a-z](\d{13})/.exec(String(x.id||"")); return m ? Number(m[1]) : 0; };
+    const byNewest = (a,b2) => String(b2.date).localeCompare(String(a.date)) || (idTs(b2) - idTs(a));
     h += '<div class="cap" style="display:block;padding:12px 4px 6px">충전 내역</div>';
     if (!chs.length) h += '<div class="card empty2">충전 기록이 없습니다 — 경비 추가에서 분류 \'충전\'으로 입력하세요.</div>';
-    else chs.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(e => {
+    else chs.slice().sort(byNewest).forEach(e => {
       const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
         ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
       const hasKrw = e.krw != null;
@@ -1488,7 +1494,7 @@
     // ── 하단: 회비 입금 관리(내역·낸사람·＋버튼) ──
     h += '<div class="cap" style="display:block;padding:16px 4px 6px">회비 입금</div>';
     if (payers.length) h += '<div class="fundby" style="margin:0 0 9px">' + payers.map(p => '<span class="chip">' + avHtml(p) + " ₩" + fmt(byPayer[p]) + "</span>").join("") + "</div>";
-    if (fundItems.length) fundItems.slice().sort((a,b2) => String(b2.date).localeCompare(String(a.date))).forEach(f => {
+    if (fundItems.length) fundItems.slice().sort(byNewest).forEach(f => {
       h += '<div class="card erow" data-fund="' + esc(f.id) + '"><span class="tile t-charge">🏦</span>' +
         '<div class="bd"><div class="nm">' + esc(f.memo || "회비 입금") + '</div><div class="who">' + avHtml(f.payer) + '<span class="lbl num">' + esc(f.payer || "?") + " · " + esc(dhead(f.date)) + "</span></div></div>" +
         '<div class="amt"><div class="j num">₩' + fmt(f.krw) + "</div></div></div>";
@@ -1574,8 +1580,14 @@
     if (!m) return s;
     const d2 = new Date(m[1] + "-" + m[2] + "-" + m[3] + "T00:00:00");
     return (+m[2]) + "/" + (+m[3]) + " (" + DOW[d2.getDay()] + ")" + (m[4] ? " " + m[4] : ""); };
+  // datetime: 시트가 "2026-07-26" 같은 순수 날짜를 Date로 자동변환("Sun Jul 26 2026 00:00…") → ISO 정규화(자정이면 날짜만, 시각 있으면 THH:mm 보존)
+  const normBkDt = v => { const s = String(v || ""); if (!s || /^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+    const d = new Date(s); if (isNaN(d.getTime())) return s;
+    const iso = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+    const hm = String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+    return hm === "00:00" ? iso : iso + "T" + hm; };
   function bkList(){ return jsonp("action=list&sheet=bookings&token=" + encodeURIComponent(TOKEN)).then(d => {
-    if (d && d.ok && d.items) bkItems = d.items; }).catch(() => {}); }
+    if (d && d.ok && d.items) bkItems = d.items.map(x => Object.assign({}, x, { datetime: normBkDt(x.datetime) })); }).catch(() => {}); }
   function renderBk(){
     const list = bkItems.filter(e => bkFilter === "all" || e.type === bkFilter)
       .slice().sort((a,b2) => String(a.datetime || "9999").localeCompare(String(b2.datetime || "9999")));

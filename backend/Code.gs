@@ -156,7 +156,9 @@ function _sheet(){
 function _items(){
   var v = _sheet().getDataRange().getValues(), out = [];
   for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[9]) continue;   // 소프트삭제 행 제외
-    out.push({ id:String(r[0]), date:String(r[1]), cat:String(r[2]), amount:Number(r[3])||0,
+    // date: 시트가 "2026-06-30" 문자열을 Date로 자동변환 → _itDate로 "yyyy-MM-dd" 정규화(문자열이면 그대로).
+    // 미정규화 시 프론트 정렬이 요일 알파벳순으로 깨짐(프론트도 normDate 방어 있음 — 이중 안전망)
+    out.push({ id:String(r[0]), date:_itDate(r[1]), cat:String(r[2]), amount:Number(r[3])||0,
                payer:String(r[4]), parts:String(r[5]||"").split("|").filter(String), memo:String(r[6]||""),
                receipt:String(r[8]||""), krw:(r[10]===""||r[10]==null)?null:Number(r[10]),   // 충전 실지불 원화(없으면 null)
                splits:String(r[11]||""), groups:String(r[12]||""),   // splits=커스텀 분할, groups=그룹 배정(복원용)
@@ -287,11 +289,20 @@ function _bkSheet(){
   if(String(sh.getRange(1, BK_HEADERS.length+1).getValue()) === ""){ sh.getRange(1, BK_HEADERS.length+1).setValue("deleted"); }  // 소프트삭제 컬럼(12열) 보강 — 빈 셀일 때만(수동 확장열 덮어쓰기 방지)
   return sh;
 }
+// datetime: 시트가 "2026-07-26" 순수 날짜를 Date로 자동변환 → ISO 정규화(자정=날짜만, 시각 있으면 T HH:mm 보존)
+function _bkDt(v){
+  if(Object.prototype.toString.call(v) === "[object Date]"){
+    var tz = Session.getScriptTimeZone() || "Asia/Seoul";
+    var d = Utilities.formatDate(v, tz, "yyyy-MM-dd"), t = Utilities.formatDate(v, tz, "HH:mm");
+    return t === "00:00" ? d : d + "T" + t;
+  }
+  return String(v||"");
+}
 function _bkItems(){
   var v = _bkSheet().getDataRange().getValues(), out = [];
   // 열: 0 id|1 type|2 title|3 datetime|4 sub|5 detail|6 voucherUrl|7 mapUrl|8 memo|9 ts|10 attachments
   for(var i=1;i<v.length;i++){ var r=v[i]; if(!r[0] || r[11]) continue;   // 소프트삭제 행 제외
-    out.push({ id:String(r[0]), type:String(r[1]||""), title:String(r[2]||""), datetime:String(r[3]||""),
+    out.push({ id:String(r[0]), type:String(r[1]||""), title:String(r[2]||""), datetime:_bkDt(r[3]),
                sub:String(r[4]||""), detail:String(r[5]||""), voucherUrl:String(r[6]||""),
                mapUrl:String(r[7]||""), memo:String(r[8]||""), attachments:String(r[10]||"") });
   }
