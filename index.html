@@ -1066,6 +1066,24 @@
       res({ dataBase64:b64, mimeType:mm, filename: fnFor(date,cat,id) }); };
     fr.readAsDataURL(file);
   }); }
+  // 영수증 업로드 전용 전송: Apps Script+Drive가 느려(수초~수십초) 90초 타임아웃 + 실패 사유 노출.
+  // (postEntry는 .catch(()=>null)로 사유를 삼켜 "왜 실패했는지"가 안 보였음 — 업로드는 별도 처리)
+  function uploadReceipt(body){
+    const ac = ("AbortController" in window) ? new AbortController() : null;
+    const to = ac ? setTimeout(() => { try { ac.abort(); } catch(e){} }, 90000) : 0;
+    const opt = { method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify(body) };
+    if (ac) opt.signal = ac.signal;
+    return fetch(WEBAPP, opt)
+      .then(r => r.text().then(t => { let j = null; try { j = JSON.parse(t); } catch(e){} return { j, status:r.status }; }))
+      .then(x => { if (to) clearTimeout(to);
+        if (x.j && x.j.ok && x.j.url) return x.j;                       // 성공(ok+url) 시에만 통과
+        throw new Error(x.j && x.j.error ? x.j.error : ("서버응답 " + x.status)); })
+      .catch(e => { if (to) clearTimeout(to);
+        const nm = (e && e.name) || "", msg = (e && e.message) || "";
+        if (nm === "AbortError" || /abort/i.test(msg)) throw new Error("시간초과(90초)");
+        if (nm === "TypeError" || /failed to fetch|networkerror|load failed/i.test(msg)) throw new Error("네트워크");
+        throw e; });
+  }
 
   /* 토스트 */
   let toastEl = null, toastT = 0;
@@ -1367,14 +1385,13 @@
       btn.textContent = "영수증 업로드 중…";
       downscale(rcFile, draft.date, draft.cat, id)
         .catch(err => { if (err && err.message === "decode") return rawUpload(rcFile, draft.date, draft.cat, id); throw err; })
-        .then(p => postEntry({ action:"upload", token:TOKEN, id, filename:p.filename, mimeType:p.mimeType, dataBase64:p.dataBase64 }))
-        .then(r => {
-          if (r && r.ok && r.url){ rcFile = null; return doSave(r.url); }
-          toast("영수증 업로드 실패 — 항목만 저장합니다"); return doSave("");
-        })
+        .then(p => uploadReceipt({ action:"upload", token:TOKEN, id, filename:p.filename, mimeType:p.mimeType, dataBase64:p.dataBase64 }))
+        .then(r => { rcFile = null; return doSave(r.url); })   // uploadReceipt는 성공 시에만 resolve
         .catch(err => { const m = (err && err.message) || "";
-          toast(m === "toolarge" ? "이미지가 너무 큽니다 — 항목만 저장합니다"
-              : m === "decode" ? "이 이미지는 첨부 불가 — 항목만 저장합니다" : "영수증 처리 실패 — 항목만 저장합니다");
+          toast(m === "toolarge" ? "이미지가 너무 커요(8MB↓) — 항목만 저장"
+              : m === "decode" ? "이 이미지 형식은 첨부 불가 — 항목만 저장"
+              : m === "read" ? "파일 읽기 실패 — 항목만 저장"
+              : "영수증 업로드 실패(" + m + ") — 항목만 저장");
           return doSave(""); });
     } else doSave(draft.receipt || "");
   });
