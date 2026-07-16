@@ -253,13 +253,14 @@
   /* ── 잔액·환율(V4) ── */
   .fundcard{background:var(--bg);border:.6px solid var(--line);border-radius:var(--r-xl);padding:16px 18px;margin:2px 0 10px;box-shadow:var(--sh-card);}
   .fundcard .v{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:5px 0 2px;}
-  .fundcard .fg{height:8px;border-radius:99px;background:var(--bg3);margin:11px 0 9px;overflow:hidden;}
-  .fundcard .fg i{display:block;height:100%;border-radius:99px;background:var(--accent);}
+  .fundcard .fg{height:8px;border-radius:99px;background:var(--bg3);margin:11px 0 9px;overflow:hidden;display:flex;}
+  .fundcard .fg i{display:block;height:100%;background:var(--accent);}
+  .fundcard .fg i.used{background:#f59e0b;}
   .fundsplit{display:flex;gap:10px;font-size:12px;}
-  .fundsplit .c{flex:1;}
+  .fundsplit .c{flex:1;min-width:0;}
   .fundsplit .l{color:var(--muted);font-size:10.5px;font-weight:700;}
   .fundsplit .n{font-weight:800;margin-top:1px;}
-  .fundsplit .n.ex{color:var(--accent-ink);} .fundsplit .n.re{color:var(--ink);}
+  .fundsplit .n.us{color:#b45309;} .fundsplit .n.ex{color:var(--accent-ink);} .fundsplit .n.re{color:var(--ink);}
   .fundby{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px;}
   .fundby .chip{background:var(--bg3);}
   .fund-add{width:100%;margin-top:11px;border:.6px dashed var(--accent);color:var(--accent-ink);background:var(--accent-soft);border-radius:var(--r-md);padding:10px;font-size:13px;font-weight:800;}
@@ -1446,14 +1447,20 @@
     const chargeKrw = chs.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);  // 실지불 원화(없으면 환율환산 폴백)
     const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);
     const bal = charge - spend, pct = charge > 0 ? Math.round(spend/charge*100) : 0;
-    // ── 회비 계층(원화, 최상위): 전체 회비 → 환전함(=충전 실지불) / 미환전 잔여 ──
+    // ── 회비 계층(원화, 최상위): 전체 회비 = 사용(월렛 지출) + 월렛 잔여 + 미환전 ──
+    // 사용 = 공동(월렛) 지출 엔화 × 실효환율(충전 실지불₩÷충전¥, 정산과 동일 규칙). 개인결제는 회비에서 안 나가므로 제외(정산에서 상환).
     const fundTotal = fundItems.reduce((s,f) => s + (Number(f.krw)||0), 0);
     const exch = chargeKrw, unexch = Math.max(0, fundTotal - exch);
-    const exPct = fundTotal > 0 ? Math.round(exch/fundTotal*100) : 0;
+    const effR = charge > 0 ? chargeKrw / charge : jKrw(1);
+    const walletYen = EX.reduce((s,e) => s + (e.paySrc === "personal" ? 0 : (Number(e.amount)||0)), 0);
+    const usedKrw = Math.round(walletYen * effR), walLeft = Math.max(0, exch - usedKrw);
+    const usedPct = fundTotal > 0 ? Math.round(usedKrw/fundTotal*100) : 0;
     let h = '<div class="fundcard"><div class="cap">전체 회비</div><div class="v num">₩' + fmt(fundTotal) + "</div>";
     if (fundTotal > 0){
-      h += '<div class="fg"><i style="width:' + Math.min(exPct,100) + '%"></i></div>' +
-        '<div class="fundsplit"><div class="c"><div class="l">환전함 (' + exPct + '%)</div><div class="n ex num">₩' + fmt(exch) + "</div></div>" +
+      const uW = Math.min(usedPct, 100), wW = Math.max(0, Math.min(Math.round(walLeft/fundTotal*100), 100 - uW));
+      h += '<div class="fg"><i class="used" style="width:' + uW + '%"></i><i style="width:' + wW + '%"></i></div>' +
+        '<div class="fundsplit"><div class="c"><div class="l">사용 (' + usedPct + '%)</div><div class="n us num">₩' + fmt(usedKrw) + "</div></div>" +
+        '<div class="c"><div class="l">월렛 잔여</div><div class="n ex num">₩' + fmt(walLeft) + "</div></div>" +
         '<div class="c"><div class="l">미환전 잔여</div><div class="n re num">₩' + fmt(unexch) + "</div></div></div>";
     } else h += '<div class="s" style="font-size:11.5px;color:var(--muted);margin-top:6px">아직 입금된 회비가 없어요 — 맨 아래에서 입금하세요.</div>';
     h += "</div>";   // 회비 카드는 요약만(최상위). 낸사람·입금·＋버튼은 하단으로.
