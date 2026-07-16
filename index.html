@@ -1324,13 +1324,14 @@
     const m = el.dataset.m, i = draft.parts.indexOf(m);
     if (i >= 0) draft.parts.splice(i, 1); else draft.parts.push(m);
     el.classList.toggle("on"); ppUpdate(); });
-  $("#e-rc").addEventListener("click", () => fileIn.click());
+  // 초기화는 "선택 전"에만 — 선택 후 value를 비우면 일부 모바일서 File blob이 무효화돼 저장 시 읽기 실패(파일 읽기 실패)나던 문제
+  $("#e-rc").addEventListener("click", () => { try { fileIn.value = ""; } catch(e){} fileIn.click(); });
   fileIn.addEventListener("change", () => {
     const f = fileIn.files && fileIn.files[0]; if (!f) return;
     const t = f.type || "", isImg = /^image\//.test(t) || (t === "" && /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name||""));
-    if (!isImg){ toast("이미지 파일만 첨부할 수 있습니다"); fileIn.value = ""; return; }
-    if (f.size > 12*1024*1024){ toast("파일이 너무 큽니다 (12MB 이하)"); fileIn.value = ""; return; }
-    rcFile = f; draft.receipt = ""; rcState(); fileIn.value = "";
+    if (!isImg){ toast("이미지 파일만 첨부할 수 있습니다"); return; }        // value는 다음 클릭 때 초기화(여기서 비우면 blob 무효화 위험)
+    if (f.size > 12*1024*1024){ toast("파일이 너무 큽니다 (12MB 이하)"); return; }
+    rcFile = f; draft.receipt = ""; rcState();                              // fileIn.value 비우지 않음 — 저장까지 File 유효 유지
   });
   $("#edlg-back").addEventListener("click", () => { if (!busy) edlg.classList.remove("open"); });
 
