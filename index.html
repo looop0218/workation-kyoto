@@ -1196,7 +1196,8 @@
   /* 다이얼로그 */
   const edlg = $("#edlg"), fileIn = $("#e-file");
   let editingId = null, rcFile = null, draft = null;
-  if (routeDays.length){ $("#e-date").min = routeDays[0].date; $("#e-date").max = routeDays[routeDays.length-1].date; }
+  // 상한만 유지(미래 오타 방지) — 하한 제거: 충전·예약금 등 여행 전 지출도 날짜 선택 가능(오늘이 여행 종료보다 늦으면 오늘까지)
+  if (routeDays.length){ const hi = routeDays[routeDays.length-1].date, t = todayISO(); $("#e-date").max = (t > hi ? t : hi); }
   function memBtns(el, sel){
     el.innerHTML = MEMBERS.map(m => '<div class="mem' + (sel.indexOf(m) >= 0 ? " on" : "") + '" data-m="' + esc(m) + '">' + avHtml(m) + esc(m) + "</div>").join("");
   }
