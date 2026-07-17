@@ -291,6 +291,11 @@
   .trow .k{font-size:13px;font-weight:700;}
   .trow .j{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .trow .sp{flex:0 0 auto;font-size:15px;opacity:.55;}
+  .talkrow{display:flex;gap:8px;margin-top:9px;}
+  .talkrow .ghost{flex:0 0 auto;padding:0 14px;}
+  .talkrow .cta{flex:1;width:auto;}
+  .talkrow button.rec{background:#fee2e2;border-color:#ef4444;color:#b91c1c;animation:recpulse 1.2s ease-in-out infinite;}
+  @keyframes recpulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.35);}50%{box-shadow:0 0 0 6px rgba(239,68,68,0);}}
   .catbar{display:flex;align-items:center;gap:9px;padding:7px 4px;}
   .catbar .cdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
   .catbar .cl{font-size:12.5px;font-weight:600;width:74px;flex:0 0 auto;}
@@ -386,7 +391,10 @@
       <div class="card talkin">
         <div class="seg" id="talk-dir"><button class="on" data-d="k2j" type="button">한→일</button><button data-d="j2k" type="button">일→한</button></div>
         <textarea id="talk-q" rows="2" maxlength="200" placeholder="번역할 문장 입력 (예: 오사카까지 가는 표 두 장 주세요)"></textarea>
-        <button class="cta" id="talk-go" type="button" style="width:100%;margin-top:9px">번역하기</button>
+        <div class="talkrow">
+          <button class="ghost" id="talk-mic" type="button">🎤 말하기</button>
+          <button class="cta" id="talk-go" type="button">번역하기</button>
+        </div>
       </div>
       <div class="dayseg" id="talk-cats"></div>
       <div id="talk-list"></div>
@@ -1888,9 +1896,44 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(curTalk.text).then(() => toast("복사됨")).catch(() => toast("복사 실패"));
     else toast("이 브라우저는 복사 미지원");
   });
+  /* 음성 인식(마이크): 방향 세그 연동 — 한→일=한국어 말하기, 일→한=일본어 듣기(점원 말 이해).
+     Web Speech API는 Chrome(안드) 지원·삼성인터넷 미지원 — 미지원 시 안내 토스트. 인식 종료 시 자동 번역. */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  let rec = null, recOn = false;
+  function micUI(on){ const b = $("#talk-mic");
+    b.classList.toggle("rec", on);
+    b.textContent = on ? "⏹ 듣는 중…" : (talkDir === "k2j" ? "🎤 말하기" : "🎤 일본어 듣기"); }
+  $("#talk-mic").addEventListener("click", () => {
+    if (!SR){ toast("이 브라우저는 음성 인식 미지원 — Chrome으로 열어보세요"); return; }
+    if (recOn){ try { rec.stop(); } catch(e){} return; }
+    try {
+      rec = new SR();
+      rec.lang = talkDir === "k2j" ? "ko-KR" : "ja-JP";
+      rec.interimResults = true; rec.continuous = false;
+      let fin = "";
+      rec.onstart = () => { recOn = true; micUI(true); };
+      rec.onresult = ev => { let interim = "";
+        for (let i = ev.resultIndex; i < ev.results.length; i++){
+          const t = ev.results[i][0].transcript;
+          if (ev.results[i].isFinal) fin += t; else interim += t;
+        }
+        $("#talk-q").value = (fin + interim).trim(); };
+      rec.onerror = ev => { recOn = false; micUI(false);
+        const er = ev.error;
+        toast(er === "not-allowed" || er === "service-not-allowed" ? "마이크 권한을 허용해 주세요"
+            : er === "no-speech" ? "음성이 감지되지 않았어요 — 다시 시도"
+            : er === "audio-capture" ? "마이크를 찾을 수 없어요"
+            : er === "network" ? "음성 인식 네트워크 오류" : "음성 인식 실패(" + er + ")"); };
+      rec.onend = () => { const wasOn = recOn; recOn = false; micUI(false);
+        if (wasOn && $("#talk-q").value.trim()) $("#talk-go").click(); };   // 인식된 문장 있으면 자동 번역
+      rec.start();
+    } catch(e){ recOn = false; micUI(false); toast("음성 인식을 시작할 수 없어요"); }
+  });
   $("#talk-dir").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return;
     talkDir = b.dataset.d; $("#talk-dir").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
-    $("#talk-q").placeholder = talkDir === "k2j" ? "번역할 문장 입력 (예: 오사카까지 가는 표 두 장 주세요)" : "일본어 문장 붙여넣기 (메뉴·안내문 등)"; });
+    if (recOn){ try { rec.stop(); } catch(e){} }   // 방향 전환 시 진행 중 인식 중지(언어가 달라짐)
+    micUI(false);
+    $("#talk-q").placeholder = talkDir === "k2j" ? "번역할 문장 입력 (예: 오사카까지 가는 표 두 장 주세요)" : "일본어 문장 붙여넣기 또는 🎤 일본어 듣기 (메뉴·안내문·점원 말)"; });
   $("#talk-go").addEventListener("click", () => {
     if (talkBusy) return;
     const q = $("#talk-q").value.trim();
