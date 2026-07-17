@@ -296,6 +296,8 @@
   .talkrow .cta{flex:1;width:auto;}
   .talkrow button.rec{background:#fee2e2;border-color:#ef4444;color:#b91c1c;animation:recpulse 1.2s ease-in-out infinite;}
   @keyframes recpulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.35);}50%{box-shadow:0 0 0 6px rgba(239,68,68,0);}}
+  .applinks{display:flex;gap:8px;margin-top:8px;}
+  .applinks button{flex:1;border:.6px solid var(--line);border-radius:10px;padding:9px 0;font-size:12px;font-weight:700;color:var(--ink3);background:var(--bg);cursor:pointer;}
   .catbar{display:flex;align-items:center;gap:9px;padding:7px 4px;}
   .catbar .cdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
   .catbar .cl{font-size:12.5px;font-weight:600;width:74px;flex:0 0 auto;}
@@ -394,6 +396,10 @@
         <div class="talkrow">
           <button class="ghost" id="talk-mic" type="button">🎤 말하기</button>
           <button class="cta" id="talk-go" type="button">번역하기</button>
+        </div>
+        <div class="applinks">
+          <button type="button" id="talk-gt">🌐 구글 번역 앱으로</button>
+          <button type="button" id="talk-pp">파파고로</button>
         </div>
       </div>
       <div class="dayseg" id="talk-cats"></div>
@@ -1949,6 +1955,22 @@
       else toast("번역 실패" + (r && r.error ? ": " + r.error : ""));
     }).catch(() => { talkBusy = false; btn.disabled = false; btn.textContent = "번역하기"; toast("번역 실패(네트워크)"); });
   });
+  /* 외부 번역 앱 열기 — 현재 방향·입력 문장을 그대로 넘김.
+     안드로이드=intent(구글 번역 앱 직접 호출, 미설치 시 웹 폴백) / 그 외=웹(설치돼 있으면 유니버설 링크로 앱 열림) */
+  function talkAppUrls(){
+    const sl = talkDir === "k2j" ? "ko" : "ja", tl = talkDir === "k2j" ? "ja" : "ko";
+    const q = encodeURIComponent($("#talk-q").value.trim().slice(0, 300));
+    const gtQs = "sl=" + sl + "&tl=" + tl + (q ? "&text=" + q : "") + "&op=translate";
+    return {
+      gtWeb: "https://translate.google.com/?" + gtQs,
+      gtIntent: "intent://translate.google.com/?" + gtQs + "#Intent;scheme=https;package=com.google.android.apps.translate;S.browser_fallback_url=" + encodeURIComponent("https://translate.google.com/?" + gtQs) + ";end",
+      pp: "https://papago.naver.com/?sk=" + sl + "&tk=" + tl + (q ? "&st=" + q : "")
+    };
+  }
+  $("#talk-gt").addEventListener("click", () => { const u = talkAppUrls();
+    if (/android/i.test(navigator.userAgent)) location.href = u.gtIntent;
+    else window.open(u.gtWeb, "_blank", "noopener"); });
+  $("#talk-pp").addEventListener("click", () => { window.open(talkAppUrls().pp, "_blank", "noopener"); });
 
   /* ═══════════ 맛집후보(places) 다이얼로그 ═══════════ */
   const pdlg = $("#pdlg");
