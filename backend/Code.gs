@@ -616,11 +616,25 @@ function _fundPost(d){
 
 /* ───────────────────────── 엔트리포인트 ───────────────────────── */
 
+/* ── 번역(translate): Apps Script 내장 LanguageApp(구글 번역, 키·비용 없음) ──
+ *  GET action=translate&q=문장&sl=ko&tl=ja — 언어는 ko/ja/en 화이트리스트, 500자 컷.
+ *  일일 쿼터(개인 계정 수천 건)로 여행용 충분. 쓰기 없음 → 감사로그 생략. */
+function _translateGet(p, cb){
+  var q = String(p.q||"").slice(0, 500);
+  if(!q) return _out({ok:false, error:"empty"}, cb);
+  var LANGS = ["ko","ja","en"];
+  var sl = LANGS.indexOf(String(p.sl)) >= 0 ? String(p.sl) : "ko";
+  var tl = LANGS.indexOf(String(p.tl)) >= 0 ? String(p.tl) : "ja";
+  try { return _out({ok:true, text: LanguageApp.translate(q, sl, tl)}, cb); }
+  catch(err){ return _out({ok:false, error:"translate error"}, cb); }
+}
+
 function doGet(e){
   var p = e.parameter || {}, cb = p.callback;
   if(!_tokOK(p.token)) return _out({ok:false, error:"bad token"}, cb);   // 속성 TOKENS 목록 기준
   _seenToken(p.token);
   try {
+    if(p.action === "translate") return _translateGet(p, cb);           // 번역(시트 라우팅과 무관)
     // sheet 미지정 시 "expenses"로 폴백 → 기존 경비/잔액/영수증 호출(sheet 없이 옴) 안 깨짐
     if(_route(p.sheet) === "bookings") return _bookingsGet(p, cb);
     if(_route(p.sheet) === "places") return _placesGet(p, cb);

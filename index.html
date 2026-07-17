@@ -67,8 +67,8 @@
   .dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + var(--safe-b));z-index:50;
     display:flex;gap:4px;padding:7px;border-radius:24px;background:var(--dock);
     backdrop-filter:saturate(1.7) blur(22px);box-shadow:0 12px 40px -8px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.08);}
-  .dock button{display:flex;flex-direction:column;align-items:center;gap:2px;width:56px;padding:7px 0 6px;
-    border-radius:18px;color:#d4d4d8;font-size:10.5px;font-weight:700;transition:background .2s,color .2s;}
+  .dock button{display:flex;flex-direction:column;align-items:center;gap:2px;width:50px;padding:7px 0 6px;
+    border-radius:18px;color:#d4d4d8;font-size:10.5px;font-weight:700;transition:background .2s,color .2s;}  /* 6버튼×50px=334px — 360px 폰 수납 */
   .dock button .ic{font-size:19px;line-height:1;}
   .dock button.on{background:rgba(255,255,255,.12);color:#fff;}
   .dock button.on .lbl{color:var(--accent);}
@@ -276,6 +276,21 @@
   .mstrip{margin:2px 0 10px;}
   .mstrip .card{position:relative;cursor:pointer;}
   .mstrip .card::after{content:"›";position:absolute;top:10px;right:12px;color:var(--muted);font-weight:800;}
+  /* ── 회화·번역(talk) ── */
+  .talkout{background:#111827;color:#fff;border-radius:var(--r-xl);padding:20px 18px;margin:2px 0 10px;box-shadow:var(--sh-card);}
+  .talkout .ja{font-size:29px;font-weight:800;line-height:1.4;word-break:break-word;min-height:41px;}
+  .talkout .ko{font-size:12.5px;color:rgba(255,255,255,.78);margin-top:10px;line-height:1.5;}
+  .talkout .rd{color:rgba(255,255,255,.55);}
+  .talkbtns{display:flex;gap:8px;margin-top:14px;}
+  .talkbtns button{flex:1;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.1);color:#fff;border-radius:10px;padding:9px 0;font-size:13px;font-weight:700;cursor:pointer;}
+  .talkin{padding:14px;margin-bottom:12px;}
+  .talkin textarea{width:100%;border:.6px solid var(--line);border-radius:10px;padding:11px 13px;font-size:14px;font-family:inherit;background:var(--bg);color:var(--ink);resize:none;margin-top:9px;}
+  .talkin textarea:focus{outline:2px solid var(--accent-soft);border-color:var(--accent);}
+  .trow{display:flex;align-items:center;gap:10px;padding:11px 13px;margin-bottom:7px;cursor:pointer;}
+  .trow .bd{flex:1;min-width:0;}
+  .trow .k{font-size:13px;font-weight:700;}
+  .trow .j{font-size:11.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .trow .sp{flex:0 0 auto;font-size:15px;opacity:.55;}
   .catbar{display:flex;align-items:center;gap:9px;padding:7px 4px;}
   .catbar .cdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
   .catbar .cl{font-size:12.5px;font-weight:600;width:74px;flex:0 0 auto;}
@@ -362,6 +377,20 @@
       <div id="bk-body"></div>
       <button class="ghost" id="bk-add" style="margin-top:4px;width:100%">＋ 예약 추가</button>
     </div>
+    <div class="view" id="v-talk" style="display:none">
+      <div class="talkout" id="talk-out">
+        <div class="ja" id="talk-ja">こんにちは</div>
+        <div class="ko" id="talk-ko">안녕하세요 · <span class="rd">곤니치와</span></div>
+        <div class="talkbtns"><button id="talk-say" type="button">🔊 듣기</button><button id="talk-copy" type="button">복사</button></div>
+      </div>
+      <div class="card talkin">
+        <div class="seg" id="talk-dir"><button class="on" data-d="k2j" type="button">한→일</button><button data-d="j2k" type="button">일→한</button></div>
+        <textarea id="talk-q" rows="2" maxlength="200" placeholder="번역할 문장 입력 (예: 오사카까지 가는 표 두 장 주세요)"></textarea>
+        <button class="cta" id="talk-go" type="button" style="width:100%;margin-top:9px">번역하기</button>
+      </div>
+      <div class="dayseg" id="talk-cats"></div>
+      <div id="talk-list"></div>
+    </div>
   </div>
 </section>
 
@@ -371,6 +400,7 @@
   <button data-v="exp"><span class="ic">🧾</span><span class="lbl">경비</span></button>
   <button data-v="bal"><span class="ic">💰</span><span class="lbl">잔액</span></button>
   <button data-v="bk"><span class="ic">🎫</span><span class="lbl">예약</span></button>
+  <button data-v="talk"><span class="ic">🗣️</span><span class="lbl">회화</span></button>
 </nav>
 
 <button class="fab" id="fab">＋ 경비 추가</button>
@@ -920,7 +950,7 @@
   select(_ti >= 0 ? "d" + _ti : (routeDays.length ? "d0" : "all"));
 
   /* ── 독 라우팅 ── */
-  const views = { plan:"v-plan", exp:"v-exp", bal:"v-bal", bk:"v-bk" };
+  const views = { plan:"v-plan", exp:"v-exp", bal:"v-bal", bk:"v-bk", talk:"v-talk" };
   document.querySelectorAll(".dock button").forEach(b => b.addEventListener("click", () => {
     const v = b.dataset.v;
     document.querySelectorAll(".dock button").forEach(x => x.classList.toggle("on", x === b));
@@ -934,6 +964,7 @@
     if (v === "exp") expEnter();
     if (v === "bal") balEnter();
     if (v === "bk") bkEnter();
+    if (v === "talk") talkEnter();
   }));
 
   /* ── 시트 드래그(모바일): 디텐트 3단 스냅 ── */
@@ -1782,6 +1813,98 @@
     postEntry({ action:"delete", token:TOKEN, sheet:"bookings", id:bEditing }).then(() => bkList()).then(() => {
       bkBusy = false; btn.textContent = "삭제"; bdlg.classList.remove("open"); renderBk(); toast("삭제됨");
     }).catch(() => { bkBusy = false; btn.textContent = "삭제"; toast("삭제 실패"); });
+  });
+
+  /* ═══════════ 회화·번역(talk) — 회화집=오프라인 정적 데이터, 번역=백엔드 LanguageApp ═══════════ */
+  // [분류, 한국어, 일본어, 한글 발음] — 4인 학회 여행 상황(식당·계산·이동·호텔) 맞춤
+  const PHRASES = [
+    ["기본","안녕하세요","こんにちは","곤니치와"],
+    ["기본","감사합니다","ありがとうございます","아리가토- 고자이마스"],
+    ["기본","실례합니다 (저기요)","すみません","스미마셍"],
+    ["기본","괜찮아요","大丈夫です","다이조-부데스"],
+    ["기본","잘 모르겠어요","よく分かりません","요쿠 와카리마셍"],
+    ["기본","천천히 말해 주세요","ゆっくり話してください","윳쿠리 하나시테 구다사이"],
+    ["식당","4명이에요","4人です","요닌데스"],
+    ["식당","자리 있나요? (예약 안 함)","予約していないんですが、席はありますか？","요야쿠 시테이나인데스가, 세키와 아리마스카"],
+    ["식당","예약했어요, 이름은 김입니다","予約しています。名前はキムです","요야쿠 시테이마스. 나마에와 키무데스"],
+    ["식당","웨이팅 얼마나 걸려요?","待ち時間はどのくらいですか？","마치지캉와 도노쿠라이데스카"],
+    ["식당","영어 메뉴 있나요?","英語のメニューはありますか？","에-고노 메뉴-와 아리마스카"],
+    ["식당","추천 메뉴가 뭐예요?","おすすめは何ですか？","오스스메와 난데스카"],
+    ["식당","이거 주세요","これをください","고레오 구다사이"],
+    ["식당","이거 하나 더 주세요","これをもう一つください","고레오 모- 히토츠 구다사이"],
+    ["식당","물 주세요","お水をください","오미즈오 구다사이"],
+    ["식당","포장 되나요?","持ち帰りできますか？","모치카에리 데키마스카"],
+    ["식당","맛있었어요","おいしかったです","오이시캇타데스"],
+    ["계산","계산해 주세요","お会計お願いします","오카이케- 오네가이시마스"],
+    ["계산","카드 되나요?","カードは使えますか？","카-도와 츠카에마스카"],
+    ["계산","따로따로 계산 되나요?","別々に会計できますか？","베츠베츠니 카이케- 데키마스카"],
+    ["계산","얼마예요?","いくらですか？","이쿠라데스카"],
+    ["계산","면세 되나요?","免税できますか？","멘제- 데키마스카"],
+    ["이동","교토역까지 가나요?","京都駅に行きますか？","쿄-토에키니 이키마스카"],
+    ["이동","이 자리 비어 있나요?","この席、空いていますか？","고노 세키, 아이테이마스카"],
+    ["이동","ICOCA 충전하고 싶어요","ICOCAをチャージしたいです","이코카오 차-지 시타이데스"],
+    ["이동","화장실이 어디예요?","トイレはどこですか？","토이레와 도코데스카"],
+    ["호텔","체크인 부탁드려요","チェックインをお願いします","첵쿠인오 오네가이시마스"],
+    ["호텔","짐 맡길 수 있나요?","荷物を預かってもらえますか？","니모츠오 아즈캇테 모라에마스카"],
+    ["기타","사진 찍어 주시겠어요?","写真を撮ってもらえますか？","샤신오 톳테 모라에마스카"]
+  ];
+  const TALK_CATS = ["전체","기본","식당","계산","이동","호텔","기타"];
+  let talkCat = "전체", talkInit = false, talkBusy = false, talkDir = "k2j";
+  let curTalk = { text:"こんにちは", lang:"ja-JP" };
+  // TTS: 일본어 보이스는 비동기 로드 — voiceschanged에서 갱신
+  let jaVoice = null;
+  function pickJaVoice(){ try { jaVoice = (speechSynthesis.getVoices() || []).find(x => /^ja/i.test(x.lang)) || null; } catch(e){} }
+  try { pickJaVoice(); speechSynthesis.addEventListener("voiceschanged", pickJaVoice); } catch(e){}
+  function speak(text, lang){
+    if (!("speechSynthesis" in window)){ toast("이 브라우저는 음성 재생을 지원하지 않아요"); return; }
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = lang || "ja-JP"; u.rate = 0.95;
+      if (u.lang === "ja-JP" && jaVoice) u.voice = jaVoice;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch(e){ toast("음성 재생 실패"); }
+  }
+  function talkShow(main, sub, rd, lang){
+    curTalk = { text: main, lang: lang || "ja-JP" };
+    $("#talk-ja").textContent = main;
+    $("#talk-ko").innerHTML = esc(sub || "") + (rd ? ' · <span class="rd">' + esc(rd) + "</span>" : "");
+  }
+  function renderTalkList(){
+    $("#talk-cats").innerHTML = TALK_CATS.map(c => '<button type="button" class="' + (talkCat === c ? "on" : "") + '" data-tc="' + c + '">' + c + "</button>").join("");
+    $("#talk-list").innerHTML = PHRASES.map((p,i) => ({ p, i })).filter(x => talkCat === "전체" || x.p[0] === talkCat)
+      .map(x => '<div class="card trow" data-ph="' + x.i + '"><div class="bd"><div class="k">' + esc(x.p[1]) + '</div><div class="j">' + esc(x.p[2]) + '</div></div><span class="sp">🔊</span></div>').join("");
+  }
+  function talkEnter(){ if (!talkInit){ renderTalkList(); talkInit = true; } }
+  $("#v-talk").addEventListener("click", ev => {
+    const tc = ev.target.closest("[data-tc]");
+    if (tc){ talkCat = tc.dataset.tc; renderTalkList(); return; }
+    const ph = ev.target.closest("[data-ph]");
+    if (ph){ const p = PHRASES[+ph.dataset.ph]; if (!p) return;
+      talkShow(p[2], p[1], p[3], "ja-JP"); speak(p[2], "ja-JP");   // 탭=큰 표시+바로 읽어주기(식당에서 즉시 사용)
+      try { $("#talk-out").scrollIntoView({ behavior:"smooth", block:"start" }); } catch(e){} return; }
+  });
+  $("#talk-say").addEventListener("click", () => speak(curTalk.text, curTalk.lang));
+  $("#talk-copy").addEventListener("click", () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(curTalk.text).then(() => toast("복사됨")).catch(() => toast("복사 실패"));
+    else toast("이 브라우저는 복사 미지원");
+  });
+  $("#talk-dir").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return;
+    talkDir = b.dataset.d; $("#talk-dir").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    $("#talk-q").placeholder = talkDir === "k2j" ? "번역할 문장 입력 (예: 오사카까지 가는 표 두 장 주세요)" : "일본어 문장 붙여넣기 (메뉴·안내문 등)"; });
+  $("#talk-go").addEventListener("click", () => {
+    if (talkBusy) return;
+    const q = $("#talk-q").value.trim();
+    if (!q){ toast("문장을 입력하세요"); return; }
+    if (!configured()){ toast("연동 설정이 필요합니다"); return; }
+    const sl = talkDir === "k2j" ? "ko" : "ja", tl = talkDir === "k2j" ? "ja" : "ko";
+    talkBusy = true; const btn = $("#talk-go"); btn.disabled = true; btn.textContent = "번역 중…";
+    jsonp("action=translate&sl=" + sl + "&tl=" + tl + "&q=" + encodeURIComponent(q) + "&token=" + encodeURIComponent(TOKEN)).then(r => {
+      talkBusy = false; btn.disabled = false; btn.textContent = "번역하기";
+      // 구백엔드는 action=translate를 몰라 경비 목록(items)으로 폴백 응답 → 오염 가드
+      if (r && r.ok && typeof r.text === "string" && !r.items) talkShow(r.text, q, "", tl === "ja" ? "ja-JP" : "ko-KR");
+      else if (r && r.items) toast("백엔드 재배포가 필요합니다 (번역 기능)");
+      else toast("번역 실패" + (r && r.error ? ": " + r.error : ""));
+    }).catch(() => { talkBusy = false; btn.disabled = false; btn.textContent = "번역하기"; toast("번역 실패(네트워크)"); });
   });
 
   /* ═══════════ 맛집후보(places) 다이얼로그 ═══════════ */
