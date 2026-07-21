@@ -171,6 +171,7 @@
   .erow .who .av{width:17px;height:17px;font-size:8.5px;border-width:1.5px;margin-left:0;}
   .erow .who .lbl{font-size:11px;color:var(--muted);}
   .pstag{flex:0 0 auto;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:6px;background:#fef3c7;color:#b45309;letter-spacing:.02em;}
+  .pstag.cash{background:#dcfce7;color:#15803d;}
   .erow .rc{font-size:12px;text-decoration:none;flex:0 0 auto;}
   .erow .amt{margin-left:auto;text-align:right;flex:0 0 auto;}
   .erow .amt .j{font-size:14.5px;font-weight:800;}
@@ -256,11 +257,12 @@
   .fundcard .fg{height:8px;border-radius:99px;background:var(--bg3);margin:11px 0 9px;overflow:hidden;display:flex;}
   .fundcard .fg i{display:block;height:100%;background:var(--accent);}
   .fundcard .fg i.used{background:#f59e0b;}
+  .fundcard .fg i.cash{background:#22c55e;}
   .fundsplit{display:flex;gap:10px;font-size:12px;}
   .fundsplit .c{flex:1;min-width:0;}
-  .fundsplit .l{color:var(--muted);font-size:10.5px;font-weight:700;}
-  .fundsplit .n{font-weight:800;margin-top:1px;}
-  .fundsplit .n.us{color:#b45309;} .fundsplit .n.ex{color:var(--accent-ink);} .fundsplit .n.re{color:var(--ink);}
+  .fundsplit .l{color:var(--muted);font-size:10.5px;font-weight:700;white-space:nowrap;}
+  .fundsplit .n{font-weight:800;margin-top:1px;font-size:11.5px;}
+  .fundsplit .n.us{color:#b45309;} .fundsplit .n.ex{color:var(--accent-ink);} .fundsplit .n.cs{color:#15803d;} .fundsplit .n.re{color:var(--ink);}
   .fundby{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px;}
   .fundby .chip{background:var(--bg3);}
   .fund-add{width:100%;margin-top:11px;border:.6px dashed var(--accent);color:var(--accent-ink);background:var(--accent-soft);border-radius:var(--r-md);padding:10px;font-size:13px;font-weight:800;}
@@ -542,12 +544,12 @@
       <label>분류</label>
       <div class="pillgrid" id="e-cats"></div>
       <div id="e-krw-wrap" style="display:none">
-        <label>실제 충전 원화 ₩ (트레블월렛에 낸 금액)</label>
+        <label id="e-krw-lbl">실제 충전 원화 ₩ (트레블월렛에 낸 금액)</label>
         <input id="e-krw" type="text" inputmode="numeric" class="num" placeholder="예: 965,631">
         <div class="conv num" id="e-krw-rate"></div>
       </div>
       <label>결제수단</label>
-      <div class="seg" id="e-paysrc"><button type="button" data-ps="wallet" class="on">공동 트레블월렛</button><button type="button" data-ps="personal">개인 결제</button></div>
+      <div class="seg" id="e-paysrc"><button type="button" data-ps="wallet" class="on">월렛(공동)</button><button type="button" data-ps="cash">현금(공동)</button><button type="button" data-ps="personal">개인</button></div>
       <label>결제자 (누가 긁었나)</label>
       <div class="memrow" id="e-payer"></div>
       <label>분담 방식</label>
@@ -1027,9 +1029,10 @@
   window.addEventListener("resize", () => { if (isMobile()) { sheet.classList.add("anim"); setSheet(DET[cur], cur); } });
 
   /* ═══════════ 경비(V3) — 통신·업로드·정산 로직은 v1(index.html) 검증본 이식 ═══════════ */
-  const CATS = ["식비","교통","입장·관광","회식·술","숙박","기타","충전"];
-  const CAT_EMO = {"식비":"🍜","교통":"🚆","입장·관광":"🏯","회식·술":"🍻","숙박":"🏨","기타":"🧾","충전":"💰"};
-  const CAT_TILE2 = {"식비":"t-food","교통":"t-move","입장·관광":"t-see","회식·술":"t-cafe","숙박":"t-stay","기타":"t-etc","충전":"t-charge"};
+  const CATS = ["식비","교통","입장·관광","회식·술","숙박","기타","충전","환전"];   // 환전=현금 엔화(충전과 동일 구조: amount=¥·krw=실지불₩)
+  const CAT_EMO = {"식비":"🍜","교통":"🚆","입장·관광":"🏯","회식·술":"🍻","숙박":"🏨","기타":"🧾","충전":"💰","환전":"💱"};
+  const CAT_TILE2 = {"식비":"t-food","교통":"t-move","입장·관광":"t-see","회식·술":"t-cafe","숙박":"t-stay","기타":"t-etc","충전":"t-charge","환전":"t-charge"};
+  const isConv = c => c === "충전" || c === "환전";   // 환전함(회비→엔화 전환) 분류 — 지출 목록·정산 소진에서 제외
   const LSKEY = "wk_exp_cache_v1";
   const fmt = n => Math.round(Number(n)||0).toLocaleString();
   const num = v => { const n = parseInt(String(v||"").replace(/[^\d]/g,""), 10); return isNaN(n) ? 0 : n; };
@@ -1168,9 +1171,29 @@
     EX.forEach(e => { const sh = shareOf(e); Object.keys(sh).forEach(m => { b[m] = (b[m]||0) + sh[m]; }); });
     return b;
   }
+  // ── 공동 자금 상태(경비 스트립·잔액·정산 공용) ──
+  // 충전=트레블월렛·환전=현금 엔화, 각자 실효환율(실지불₩÷¥, 없으면 앱환율).
+  // 소진 귀속: paySrc wallet→월렛, cash→현금, personal→공동자금 무관(정산에서 상환).
+  function moneyState(){
+    const chs = entries.filter(e => e.cat === "충전"), cxs = entries.filter(e => e.cat === "환전");
+    const EX = entries.filter(e => !isConv(e.cat));
+    const amtSum = l => l.reduce((s,e) => s + (Number(e.amount)||0), 0);
+    const krwSum = l => l.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);
+    const chY = amtSum(chs), chK = krwSum(chs), cxY = amtSum(cxs), cxK = krwSum(cxs);
+    const wY = amtSum(EX.filter(e => e.paySrc !== "personal" && e.paySrc !== "cash"));
+    const cY = amtSum(EX.filter(e => e.paySrc === "cash"));
+    const wR = chY > 0 ? chK/chY : jKrw(1), cR = cxY > 0 ? cxK/cxY : jKrw(1);
+    const blendR = (chY + cxY) > 0 ? (chK + cxK)/(chY + cxY) : jKrw(1);
+    const usedW = Math.round(wY * wR), usedC = Math.round(cY * cR);
+    const fundTotal = fundItems.reduce((s,f) => s + (Number(f.krw)||0), 0);
+    return { EX, chs, cxs, chY, chK, cxY, cxK, wY, cY, wR, cR, blendR,
+             wBal: chY - wY, cBal: cxY - cY, fundTotal, usedKrw: usedW + usedC,
+             walLeft: Math.max(0, chK - usedW), cashLeft: Math.max(0, cxK - usedC),
+             unexch: Math.max(0, fundTotal - chK - cxK) };
+  }
   function renderExp(){
     if (expTab === "settle"){ renderSettle(); return; }
-    const EX = entries.filter(e => e.cat !== "충전");
+    const MS = moneyState(), EX = MS.EX;
     if (!EX.length){
       expBody.innerHTML = '<div class="card empty2">아직 입력된 경비가 없습니다.<br>오른쪽 아래 <b>＋ 경비 추가</b>로 시작하세요.</div>';
       return;
@@ -1182,19 +1205,14 @@
     const b = burdenMap(EX);
     const bn = MEMBERS.filter(m => b[m] > 0);
     const bAvg = bn.length ? bn.reduce((s,m) => s + b[m], 0) / bn.length : 0;
-    // 회비·월렛 요약 스트립(잔액 화면 미러 — 사용=월렛 지출×실효환율·개인결제 제외, ≈₩=앱 환율) — 탭하면 잔액 화면으로
-    const chs2 = entries.filter(e => e.cat === "충전");
-    const chY = chs2.reduce((s,e) => s + (Number(e.amount)||0), 0);
-    const chK = chs2.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);
-    const wY = EX.reduce((s,e) => s + (e.paySrc === "personal" ? 0 : (Number(e.amount)||0)), 0);
-    const fT = fundItems.reduce((s,f) => s + (Number(f.krw)||0), 0);
-    const uK = Math.round(wY * (chY > 0 ? chK/chY : jKrw(1))), uP = fT > 0 ? Math.round(uK/fT*100) : 0;
-    const strip = (fT > 0 || chY > 0)
+    // 회비·월렛 요약 스트립(잔액 화면 미러) — 탭하면 잔액 화면으로. 현금 환전 있으면 현금 잔액 병기
+    const uP = MS.fundTotal > 0 ? Math.round(MS.usedKrw/MS.fundTotal*100) : 0;
+    const strip = (MS.fundTotal > 0 || MS.chY > 0 || MS.cxY > 0)
       ? '<div class="statrow mstrip" data-gobal="1">' +
-        '<div class="card"><div class="cap">전체 회비</div><div class="v num">₩' + fmt(fT) + '</div>' +
-          '<div class="s num" style="font-size:10.5px;color:var(--muted);margin-top:2px">사용 ₩' + fmt(uK) + (fT > 0 ? " (" + uP + "%)" : "") + "</div></div>" +
-        '<div class="card"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(chY - wY) + '</div>' +
-          '<div class="s num" style="font-size:10.5px;color:var(--muted);margin-top:2px">≈ ₩' + fmt(jKrw(chY - wY)) + "</div></div></div>"
+        '<div class="card"><div class="cap">전체 회비</div><div class="v num">₩' + fmt(MS.fundTotal) + '</div>' +
+          '<div class="s num" style="font-size:10.5px;color:var(--muted);margin-top:2px">사용 ₩' + fmt(MS.usedKrw) + (MS.fundTotal > 0 ? " (" + uP + "%)" : "") + "</div></div>" +
+        '<div class="card"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(MS.wBal) + '</div>' +
+          '<div class="s num" style="font-size:10.5px;color:var(--muted);margin-top:2px">≈ ₩' + fmt(jKrw(MS.wBal)) + (MS.cxY > 0 ? " · 현금 ¥" + fmt(MS.cBal) : "") + "</div></div></div>"
       : "";
     let h = strip + '<div class="sum3"><div class="sumdark"><div class="cap">총 지출</div><div class="v num">¥' + fmt(tot) + "</div>" +
       '<div class="s num">≈ ₩' + fmt(jKrw(tot)) + " / $" + jUsd(tot).toFixed(0) + " · " + EX.length + "건</div></div>" +
@@ -1206,7 +1224,7 @@
       g.items.forEach(e => {
         const cnt = shareCount(e), a = Number(e.amount)||0;
         const splitLbl = e.groups ? ("그룹 분배 " + cnt + "인") : (isCustom(e) ? ("커스텀 " + cnt + "인") : (cnt + "인 분담 · 1인 ₩" + fmt(jKrw(a / (cnt||1)))));
-        const psTag = e.paySrc === "personal" ? '<span class="pstag">개인</span>' : "";
+        const psTag = e.paySrc === "personal" ? '<span class="pstag">개인</span>' : (e.paySrc === "cash" ? '<span class="pstag cash">현금</span>' : "");
         const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
           ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
         h += '<div class="card erow" data-id="' + esc(e.id) + '">' +
@@ -1222,26 +1240,22 @@
 
   /* 렌더: 정산 (회비 기반 · 원화) — 트레블월렛 결제는 결제자 무관, 각자 (낸 회비+개인결제)−(분담 소진) */
   function renderSettle(){
-    const EX = entries.filter(e => e.cat !== "충전");
+    const MS = moneyState(), EX = MS.EX;
     if (!EX.length && !fundItems.length){ expBody.innerHTML = '<div class="card empty2">정산할 데이터가 없습니다.</div>'; return; }
-    // 실효환율(₩/¥): 충전 실지불원화 합 ÷ 충전 엔화 합, 없으면 앱 환율
-    const chs = entries.filter(e => e.cat === "충전");
-    const totKrw = chs.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);
-    const totYen = chs.reduce((s,e) => s + (Number(e.amount)||0), 0);
-    const effRate = totYen > 0 ? totKrw/totYen : (fxK/fxJ);
-    const y2k = y => y * effRate;   // 엔화 → 원화(실효환율)
-    // net(원화) = 낸 것(회비 각출 + 개인결제) − 쓴 것(분담 소진). 트레블월렛 결제는 payer 채권 없음
+    // 실효환율(₩/¥): 결제수단별 — 월렛=충전 환율·현금=환전 환율·개인=전체 환전 평균(잔액 화면 게이지와 일치). 환전 이력 없으면 앱 환율 폴백
+    const rateOf = e => e.paySrc === "cash" ? MS.cR : (e.paySrc === "personal" ? MS.blendR : MS.wR);
+    // net(원화) = 낸 것(회비 각출 + 개인결제) − 쓴 것(분담 소진). 공동(월렛·현금) 결제는 payer 채권 없음
     const net = {}, paid = {}, used = {}; MEMBERS.forEach(m => { net[m]=0; paid[m]=0; used[m]=0; });
     fundItems.forEach(f => { const m = f.payer; if (m && net[m] != null){ const k = Number(f.krw)||0; net[m]+=k; paid[m]+=k; } });
     EX.forEach(e => {
       const personal = e.paySrc === "personal";
       // 개인결제인데 결제자가 멤버 밖(이상 데이터)이면 소진·채권을 함께 스킵 — 비대칭 반영 방지
       if (personal && !(e.payer != null && net[e.payer] != null)) return;
-      const sh = shareOf(e);
-      Object.keys(sh).forEach(m => { if (net[m] != null){ const k = y2k(sh[m]); net[m]-=k; used[m]+=k; } });
-      if (personal){ const k = y2k(Number(e.amount)||0); net[e.payer]+=k; paid[e.payer]+=k; }
+      const r = rateOf(e), sh = shareOf(e);
+      Object.keys(sh).forEach(m => { if (net[m] != null){ const k = sh[m] * r; net[m]-=k; used[m]+=k; } });
+      if (personal){ const k = (Number(e.amount)||0) * r; net[e.payer]+=k; paid[e.payer]+=k; }
     });
-    let h = '<div class="empty2" style="padding:6px 4px 10px;text-align:left">회비 각출 + 개인결제 − 분담 소진 기준 · 트레블월렛(공동) 결제는 결제자와 무관 · 엔화는 실효환율(¥100=₩' + fmt(y2k(100)) + ') 환산</div>';
+    let h = '<div class="empty2" style="padding:6px 4px 10px;text-align:left">회비 각출 + 개인결제 − 분담 소진 기준 · 공동(월렛·현금) 결제는 결제자와 무관 · 엔화는 실효환율(평균 ¥100=₩' + fmt(MS.blendR * 100) + ') 환산</div>';
     h += '<div class="cap" style="display:block;padding:2px 4px 8px">멤버별 정산</div>';
     MEMBERS.forEach(m => {
       const w = net[m];
@@ -1296,7 +1310,7 @@
   function openDlg(e){
     editingId = e ? e.id : null; rcData = null;
     draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"", krw:(e.krw!=null?String(e.krw):""),
-                  splitMode:(e.groups?"group":(e.splits?"custom":"even")), custom: parseSplits(e.splits), groups: parseGroups(e.groups), paySrc:(e.paySrc==="personal"?"personal":"wallet") }
+                  splitMode:(e.groups?"group":(e.splits?"custom":"even")), custom: parseSplits(e.splits), groups: parseGroups(e.groups), paySrc:((e.paySrc==="personal"||e.paySrc==="cash")?e.paySrc:"wallet") }
               : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"", splitMode:"even", custom:{}, groups:{}, paySrc:"wallet" };
     $("#edlg-ttl").textContent = e ? "경비 수정" : "경비 추가";
     $("#e-amt").value = draft.amount ? fmt(draft.amount) : "";
@@ -1367,7 +1381,8 @@
     MEMBERS.forEach(m => { if (who.indexOf(m) < 0) draft.custom[m] = 0; });
     renderCustom(); });
   function krwToggle(){
-    $("#e-krw-wrap").style.display = (draft.cat === "충전") ? "" : "none";
+    $("#e-krw-wrap").style.display = isConv(draft.cat) ? "" : "none";
+    $("#e-krw-lbl").textContent = draft.cat === "환전" ? "실제 환전 원화 ₩ (현금 엔화에 낸 금액)" : "실제 충전 원화 ₩ (트레블월렛에 낸 금액)";
     const j = num($("#e-amt").value), k = num($("#e-krw").value);
     $("#e-krw-rate").textContent = (j && k) ? ("실효환율 ¥100 = ₩" + fmt(k / j * 100)) : "";
   }
@@ -1436,7 +1451,7 @@
     const doSave = receiptUrl => {
       const entry = { id, date:draft.date, cat:draft.cat, amount:amt, payer:draft.payer, parts:saveParts,
         memo:(draft.memo||"").slice(0,200), receipt:receiptUrl||"", clientId:"c" + Date.now(),
-        krw: (draft.cat === "충전" && num(draft.krw)) ? num(draft.krw) : null,  // 충전만 실지불 원화 저장
+        krw: (isConv(draft.cat) && num(draft.krw)) ? num(draft.krw) : null,  // 충전·환전만 실지불 원화 저장
         splits: splits, groups: groupsStr, paySrc: draft.paySrc };  // splits=인별금액(정산), groups=그룹배정(복원), paySrc=결제수단
       return postEntry({ action, token:TOKEN, entry }).then(r => {
         if (r && r.ok === false){
@@ -1504,39 +1519,42 @@
   function fundList(){ return jsonp("action=list&sheet=fund&token=" + encodeURIComponent(TOKEN)).then(d => {
     if (d && d.ok && d.items) fundItems = d.items.filter(x => x && x.krw != null && x.name == null && x.cat == null && x.type == null); }).catch(() => {}); }
   function renderBal(){
-    const chs = entries.filter(e => e.cat === "충전");
-    const EX = entries.filter(e => e.cat !== "충전");
-    const charge = chs.reduce((s,e) => s + (Number(e.amount)||0), 0);
-    const chargeKrw = chs.reduce((s,e) => s + (e.krw != null ? Number(e.krw) : jKrw(Number(e.amount)||0)), 0);  // 실지불 원화(없으면 환율환산 폴백)
-    const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);                                   // 총지출(개인결제 포함 — 분류별·참고)
-    const walletYen = EX.reduce((s,e) => s + (e.paySrc === "personal" ? 0 : (Number(e.amount)||0)), 0);  // 월렛 소진(개인결제 제외 — 월렛에서 안 나감)
-    const bal = charge - walletYen, pct = charge > 0 ? Math.round(walletYen/charge*100) : 0;
-    // ── 회비 계층(원화, 최상위): 전체 회비 = 사용(월렛 지출) + 월렛 잔여 + 미환전 ──
-    // 사용 = 공동(월렛) 지출 엔화 × 실효환율(충전 실지불₩÷충전¥, 정산과 동일 규칙). 개인결제는 회비에서 안 나가므로 제외(정산에서 상환).
-    const fundTotal = fundItems.reduce((s,f) => s + (Number(f.krw)||0), 0);
-    const exch = chargeKrw, unexch = Math.max(0, fundTotal - exch);
-    const effR = charge > 0 ? chargeKrw / charge : jKrw(1);
-    const usedKrw = Math.round(walletYen * effR), walLeft = Math.max(0, exch - usedKrw);
+    const MS = moneyState(), EX = MS.EX;
+    const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);   // 총지출(개인결제 포함 — 분류별·참고)
+    const pct = MS.chY > 0 ? Math.round(MS.wY/MS.chY*100) : 0;        // 월렛 사용률
+    // ── 회비 계층(원화, 최상위): 전체 회비 = 사용(월렛+현금 지출, 각자 실효환율) + 월렛 잔여 + 현금 잔여 + 미환전 ──
+    // 개인결제는 회비에서 안 나가므로 사용에서 제외(정산에서 상환).
+    const fundTotal = MS.fundTotal, usedKrw = MS.usedKrw, walLeft = MS.walLeft, cashLeft = MS.cashLeft, unexch = MS.unexch;
     const usedPct = fundTotal > 0 ? Math.round(usedKrw/fundTotal*100) : 0;
     let h = '<div class="fundcard"><div class="cap">전체 회비</div><div class="v num">₩' + fmt(fundTotal) + "</div>";
     if (fundTotal > 0){
-      const uW = Math.min(usedPct, 100), wW = Math.max(0, Math.min(Math.round(walLeft/fundTotal*100), 100 - uW));
-      h += '<div class="fg"><i class="used" style="width:' + uW + '%"></i><i style="width:' + wW + '%"></i></div>' +
+      const uW = Math.min(usedPct, 100);
+      const wW = Math.max(0, Math.min(Math.round(walLeft/fundTotal*100), 100 - uW));
+      const cW = Math.max(0, Math.min(Math.round(cashLeft/fundTotal*100), 100 - uW - wW));
+      h += '<div class="fg"><i class="used" style="width:' + uW + '%"></i><i style="width:' + wW + '%"></i>' + (cW > 0 ? '<i class="cash" style="width:' + cW + '%"></i>' : "") + "</div>" +
         '<div class="fundsplit"><div class="c"><div class="l">사용 (' + usedPct + '%)</div><div class="n us num">₩' + fmt(usedKrw) + "</div></div>" +
         '<div class="c"><div class="l">월렛 잔여</div><div class="n ex num">₩' + fmt(walLeft) + "</div></div>" +
+        (MS.cxY > 0 ? '<div class="c"><div class="l">현금 잔여</div><div class="n cs num">₩' + fmt(cashLeft) + "</div></div>" : "") +
         '<div class="c"><div class="l">미환전 잔여</div><div class="n re num">₩' + fmt(unexch) + "</div></div></div>";
     } else h += '<div class="s" style="font-size:11.5px;color:var(--muted);margin-top:6px">아직 입금된 회비가 없어요 — 맨 아래에서 입금하세요.</div>';
     h += "</div>";   // 회비 카드는 요약만(최상위). 낸사람·입금·＋버튼은 하단으로.
     const byPayer = {}; fundItems.forEach(f => { const p = f.payer || "?"; byPayer[p] = (byPayer[p]||0) + (Number(f.krw)||0); });
     const payers = Object.keys(byPayer);
-    h += '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(bal) + "</div>" +
-      '<div class="s num">' + (charge > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(bal)) + " · 환율 " +
+    h += '<div class="balcard"><div class="cap">트레블월렛 잔액</div><div class="v num">¥' + fmt(MS.wBal) + "</div>" +
+      '<div class="s num">' + (MS.chY > 0 ? (pct + "% 사용 · ") : "") + "≈ ₩" + fmt(jKrw(MS.wBal)) + " · 환율 " +
       (fxLive ? "실시간" : "기본(" + esc(String(FXD2.updated || "내장").replace(" (실시간)", "")) + ")") + "</div>" +
       '<div class="gauge"><i style="width:' + Math.min(Math.max(pct,0),100) + '%"></i></div></div>';
-    h += '<div class="statrow"><div class="card"><div class="cap">충전 누적</div><div class="v num">¥' + fmt(charge) + '</div>' +
-      '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">실지불 ₩' + fmt(chargeKrw) + "</div></div>" +
-      '<div class="card"><div class="cap">사용 누적</div><div class="v num">¥' + fmt(walletYen) + "</div>" +
-      (spend > walletYen ? '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">개인결제 ¥' + fmt(spend - walletYen) + " 별도</div>" : "") + "</div></div>";
+    h += '<div class="statrow"><div class="card"><div class="cap">충전 누적</div><div class="v num">¥' + fmt(MS.chY) + '</div>' +
+      '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">실지불 ₩' + fmt(MS.chK) + "</div></div>" +
+      '<div class="card"><div class="cap">사용 누적 (공동)</div><div class="v num">¥' + fmt(MS.wY + MS.cY) + "</div>" +
+      ((MS.cY > 0 || spend > MS.wY + MS.cY) ? '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">' +
+        [(MS.cY > 0 ? "월렛 ¥" + fmt(MS.wY) + " · 현금 ¥" + fmt(MS.cY) : ""), (spend > MS.wY + MS.cY ? "개인 ¥" + fmt(spend - MS.wY - MS.cY) + " 별도" : "")].filter(Boolean).join(" · ") + "</div>" : "") + "</div></div>";
+    if (MS.cxY > 0){   // 현금 환전이 있을 때만 현금 행 노출
+      h += '<div class="statrow"><div class="card"><div class="cap">환전 누적 (현금)</div><div class="v num">¥' + fmt(MS.cxY) + '</div>' +
+        '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">실지불 ₩' + fmt(MS.cxK) + "</div></div>" +
+        '<div class="card"><div class="cap">현금 잔액</div><div class="v num">¥' + fmt(MS.cBal) + '</div>' +
+        '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">≈ ₩' + fmt(jKrw(MS.cBal)) + "</div></div></div>";
+    }
     const byCat = {};
     EX.forEach(e => { byCat[e.cat] = (byCat[e.cat]||0) + (Number(e.amount)||0); });
     const cats = Object.keys(byCat).sort((a,b2) => byCat[b2] - byCat[a]);
@@ -1550,16 +1568,17 @@
     // 날짜 최신순 + 같은 날짜는 입력 최신순(id에 박힌 생성 ms 타임스탬프) — 최신이 항상 위로
     const idTs = x => { const m = /^[a-z](\d{13})/.exec(String(x.id||"")); return m ? Number(m[1]) : 0; };
     const byNewest = (a,b2) => String(b2.date).localeCompare(String(a.date)) || (idTs(b2) - idTs(a));
-    h += '<div class="cap" style="display:block;padding:12px 4px 6px">충전 내역</div>';
-    if (!chs.length) h += '<div class="card empty2">충전 기록이 없습니다 — 경비 추가에서 분류 \'충전\'으로 입력하세요.</div>';
-    else chs.slice().sort(byNewest).forEach(e => {
+    const convs = MS.chs.concat(MS.cxs);   // 충전(월렛)+환전(현금) 통합 내역
+    h += '<div class="cap" style="display:block;padding:12px 4px 6px">충전·환전 내역</div>';
+    if (!convs.length) h += '<div class="card empty2">기록이 없습니다 — 경비 추가에서 분류 \'충전\'(월렛) 또는 \'환전\'(현금)으로 입력하세요.</div>';
+    else convs.slice().sort(byNewest).forEach(e => {
       const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
         ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
       const hasKrw = e.krw != null;
       const kw = hasKrw ? Number(e.krw) : jKrw(Number(e.amount) || 0);
       const rateS = (hasKrw && Number(e.amount)) ? ("¥100=₩" + fmt(Number(e.krw) / Number(e.amount) * 100)) : "환율 환산";
-      h += '<div class="card erow" data-id="' + esc(e.id) + '"><span class="tile t-charge">💰</span>' +
-        '<div class="bd"><div class="nm">' + esc(e.memo || "충전") + '</div><div class="who"><span class="lbl num">' + esc(dhead(e.date)) + " · " + esc(e.payer || "?") + "</span></div></div>" + rc +
+      h += '<div class="card erow" data-id="' + esc(e.id) + '"><span class="tile t-charge">' + (CAT_EMO[e.cat] || "💰") + "</span>" +
+        '<div class="bd"><div class="nm">' + esc(e.memo || e.cat) + '</div><div class="who"><span class="lbl num">' + esc(dhead(e.date)) + " · " + esc(e.payer || "?") + (e.cat === "환전" ? " · 현금" : "") + "</span></div></div>" + rc +
         '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(kw) + '</div><div class="k num" style="font-size:9px;opacity:.8">' + esc(rateS) + "</div></div></div>";
     });
     // ── 하단: 회비 입금 관리(내역·낸사람·＋버튼) ──

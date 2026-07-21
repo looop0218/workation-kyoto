@@ -37,7 +37,7 @@ function _tokens(){
 
 /* ── 경비(expenses) 시트: 기존 스키마 그대로 ── */
 var SHEET    = "경비";
-var CATS     = ["식비","교통","입장·관광","회식·술","숙박","기타","충전"];
+var CATS     = ["식비","교통","입장·관광","회식·술","숙박","기타","충전","환전"];   // 환전=현금 엔화(amount=¥·krw=실지불 원화, 충전과 동일 구조)
 
 var RECEIPT_FOLDER    = "워케이션영수증";                                  // 없으면 자동 생성
 var RECEIPT_MIME_RE   = /^image\/(jpe?g|png|webp|heic|heif)$/;             // 허용 이미지 MIME
@@ -162,7 +162,7 @@ function _items(){
                payer:String(r[4]), parts:String(r[5]||"").split("|").filter(String), memo:String(r[6]||""),
                receipt:String(r[8]||""), krw:(r[10]===""||r[10]==null)?null:Number(r[10]),   // 충전 실지불 원화(없으면 null)
                splits:String(r[11]||""), groups:String(r[12]||""),   // splits=커스텀 분할, groups=그룹 배정(복원용)
-               paySrc:(String(r[13]||"")==="personal")?"personal":"wallet" });   // 결제수단(기본 공동)
+               paySrc:(String(r[13]||"")==="personal")?"personal":(String(r[13]||"")==="cash"?"cash":"wallet") });   // 결제수단(wallet 공동월렛·cash 공동현금·personal 개인, 기본 wallet)
   }
   return out;
 }
@@ -250,7 +250,8 @@ function _expensesPost(d){
     var krw = (en.krw!=null && Number(en.krw)>=0 && Number(en.krw)<=100000000) ? Math.round(Number(en.krw)) : "";  // 충전 실지불 원화(선택)
     var splits = _splits(en.splits);   // 커스텀 분할 정화("멤버:엔|…"), 빈값이면 균등
     var groups = _groups(en.groups);   // 그룹 배정 정화("멤버:그룹번호|…"), 수정 복원용
-    var paySrc = (String(en.paySrc||"") === "personal") ? "personal" : "wallet";   // 결제수단(기본 공동)
+    var psIn = String(en.paySrc||"");
+    var paySrc = (psIn === "personal") ? "personal" : (psIn === "cash" ? "cash" : "wallet");   // 결제수단(wallet 공동월렛·cash 공동현금·personal 개인)
     // 10열=deleted 자리는 ""(살아있는 행 갱신/신규라 무삭제), 11열=krw, 12열=splits, 13열=groups, 14열=paySrc
     var row = [String(en.id), String(en.date), en.cat, amt, String(en.payer||""), parts, memo, new Date(), rc, "", krw, splits, groups, paySrc];
     var v = sh.getDataRange().getValues();
