@@ -1307,11 +1307,11 @@
     else st.textContent = "";
   }
   function conv(){ const j = num($("#e-amt").value); $("#e-conv").textContent = j ? ("≈ ₩" + fmt(jKrw(j)) + " / $" + jUsd(j).toFixed(2)) : ""; }
-  function openDlg(e){
+  function openDlg(e, presetCat){   // presetCat: 잔액 화면 '＋ 충전·환전 추가'처럼 분류를 미리 선택해 열 때
     editingId = e ? e.id : null; rcData = null;
     draft = e ? { date:e.date, cat:e.cat, payer:e.payer, parts:(e.parts||[]).slice(), memo:e.memo||"", amount:String(e.amount), receipt:e.receipt||"", krw:(e.krw!=null?String(e.krw):""),
                   splitMode:(e.groups?"group":(e.splits?"custom":"even")), custom: parseSplits(e.splits), groups: parseGroups(e.groups), paySrc:((e.paySrc==="personal"||e.paySrc==="cash")?e.paySrc:"wallet") }
-              : { date: todayISO(), cat:"식비", payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"", splitMode:"even", custom:{}, groups:{}, paySrc:"wallet" };
+              : { date: todayISO(), cat: (CATS.indexOf(presetCat) >= 0 ? presetCat : "식비"), payer: MEMBERS[0], parts: MEMBERS.slice(), memo:"", amount:"", receipt:"", krw:"", splitMode:"even", custom:{}, groups:{}, paySrc:"wallet" };
     $("#edlg-ttl").textContent = e ? "경비 수정" : "경비 추가";
     $("#e-amt").value = draft.amount ? fmt(draft.amount) : "";
     $("#e-date").value = draft.date || todayISO();
@@ -1447,7 +1447,7 @@
     const btn = $("#e-save");
     busy = true; btn.disabled = true; btn.textContent = "저장 중…";
     const done = (ok, msg) => { busy = false; btn.disabled = false; btn.textContent = "저장";
-      if (msg) toast(msg); if (ok){ edlg.classList.remove("open"); renderExp(); } };
+      if (msg) toast(msg); if (ok){ edlg.classList.remove("open"); renderExp(); if (balVisible()) renderBal(); } };   // 잔액 화면에서 연 경우(충전·환전 추가) 즉시 갱신
     const doSave = receiptUrl => {
       const entry = { id, date:draft.date, cat:draft.cat, amount:amt, payer:draft.payer, parts:saveParts,
         memo:(draft.memo||"").slice(0,200), receipt:receiptUrl||"", clientId:"c" + Date.now(),
@@ -1487,7 +1487,7 @@
     if (!confirm("삭제할까요?")) return;
     busy = true; const btn = $("#e-del"); btn.textContent = "삭제 중…";
     postEntry({ action:"delete", token:TOKEN, id:editingId }).then(() => refresh()).then(() => {
-      busy = false; btn.textContent = "삭제"; edlg.classList.remove("open"); renderExp(); toast("삭제됨");
+      busy = false; btn.textContent = "삭제"; edlg.classList.remove("open"); renderExp(); if (balVisible()) renderBal(); toast("삭제됨");
     }).catch(() => { busy = false; btn.textContent = "삭제"; toast("삭제 실패"); });
   });
 
@@ -1570,7 +1570,7 @@
     const byNewest = (a,b2) => String(b2.date).localeCompare(String(a.date)) || (idTs(b2) - idTs(a));
     const convs = MS.chs.concat(MS.cxs);   // 충전(월렛)+환전(현금) 통합 내역
     h += '<div class="cap" style="display:block;padding:12px 4px 6px">충전·환전 내역</div>';
-    if (!convs.length) h += '<div class="card empty2">기록이 없습니다 — 경비 추가에서 분류 \'충전\'(월렛) 또는 \'환전\'(현금)으로 입력하세요.</div>';
+    if (!convs.length) h += '<div class="card empty2">기록이 없습니다 — 아래 ＋ 버튼으로 충전(월렛)·환전(현금)을 입력하세요.</div>';
     else convs.slice().sort(byNewest).forEach(e => {
       const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
         ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
@@ -1581,6 +1581,7 @@
         '<div class="bd"><div class="nm">' + esc(e.memo || e.cat) + '</div><div class="who"><span class="lbl num">' + esc(dhead(e.date)) + " · " + esc(e.payer || "?") + (e.cat === "환전" ? " · 현금" : "") + "</span></div></div>" + rc +
         '<div class="amt"><div class="j num">¥' + fmt(e.amount) + '</div><div class="k num">₩' + fmt(kw) + '</div><div class="k num" style="font-size:9px;opacity:.8">' + esc(rateS) + "</div></div></div>";
     });
+    h += '<button class="fund-add" data-conv-add="1">＋ 충전·환전 추가</button>';   // 경비 다이얼로그를 분류=충전 프리셋으로
     // ── 하단: 회비 입금 관리(내역·낸사람·＋버튼) ──
     h += '<div class="cap" style="display:block;padding:16px 4px 6px">회비 입금</div>';
     if (payers.length) h += '<div class="fundby" style="margin:0 0 9px">' + payers.map(p => '<span class="chip">' + avHtml(p) + " ₩" + fmt(byPayer[p]) + "</span>").join("") + "</div>";
@@ -1594,6 +1595,7 @@
   }
   balBody.addEventListener("click", ev => {
     if (ev.target.closest("[data-rc]")) return;
+    if (ev.target.closest("[data-conv-add]")){ openDlg(null, "충전"); return; }   // 잔액 화면에서 충전·환전 바로 추가(다이얼로그서 환전 전환 가능)
     if (ev.target.closest("[data-fund-add]")){ openFdlg(null); return; }
     const fr = ev.target.closest("[data-fund]");
     if (fr){ const f = fundItems.find(x => String(x.id) === fr.dataset.fund); if (f) openFdlg(f); return; }
