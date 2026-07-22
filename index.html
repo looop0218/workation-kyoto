@@ -874,10 +874,20 @@
   function addPlaceMarkers(){
     placeItems.forEach(p => {
       if (p.lat == null || p.lng == null) return;
-      L.marker([p.lat, p.lng], { icon: mkPlaceIcon() })
+      const m = L.marker([p.lat, p.lng], { icon: mkPlaceIcon() })
         .bindPopup('<div class="pop-t">📍 ' + esc(p.name) + '</div><div class="pop-s">팀추천' + (p.foundBy ? " · " + esc(p.foundBy) : "") + (p.region ? " · " + esc(p.region) : "") + "</div>")
         .addTo(layer);
+      m.on("click", () => focusPlace(p.id));   // 큐레이션 마커처럼 탭 → 등록 정보로 이동
     });
+  }
+  // 팀추천 마커 탭 → 카드 하이라이트+스크롤(큐레이션 focusStop과 동일 UX). 카드가 필터에 가려 없으면 등록 정보 다이얼로그로
+  function focusPlace(id){
+    if (activeStopId && markersById[activeStopId]){ setActiveIcon(activeStopId, false); activeStopId = null; }   // 큐레이션 활성 마커 해제
+    daylist.querySelectorAll(".stop").forEach(r => r.classList.toggle("on", r.dataset.place === String(id)));
+    const row = daylist.querySelector('.stop[data-place="' + CSS.escape(String(id)) + '"]');
+    if (row){ row.scrollIntoView({ block:"nearest", behavior:"smooth" }); return; }
+    const p = placeItems.find(x => String(x.id) === String(id));
+    if (p) openPdlg(p);
   }
   function renderAllList(){
     daylist.innerHTML = routeDays.map((d,i) =>
