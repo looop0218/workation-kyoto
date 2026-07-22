@@ -1726,39 +1726,35 @@
     bkList().then(() => { rb.style.opacity = 1; renderBk(); toast("새로고침됨"); }); });
   $("#bk-add").addEventListener("click", () => openBdlg(null));
 
-  /* 예약 업로드 파이프라인(1800px 다운스케일 + HEIC 원본 폴백 + PDF 원본) */
-  function downscaleDoc(file){ return new Promise((res, rej) => {
-    const fr = new FileReader(); fr.onerror = () => rej(new Error("read"));
-    fr.onload = () => { const img = new Image(); img.onerror = () => rej(new Error("decode"));
-      img.onload = () => {
-        const w = img.naturalWidth || img.width, hh = img.naturalHeight || img.height;
-        if (!w || !hh){ rej(new Error("decode")); return; }
-        const mx = 1800, sc = Math.min(1, mx/Math.max(w,hh)), cw = Math.max(1, Math.round(w*sc)), ch = Math.max(1, Math.round(hh*sc));
-        const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
-        const ctx = cv.getContext("2d"); if (!ctx){ rej(new Error("canvas")); return; }
-        ctx.drawImage(img, 0, 0, cw, ch);
-        let url, b64, q = 0.85;
-        try { url = cv.toDataURL("image/jpeg", q); } catch(e){ rej(new Error("canvas")); return; }
-        b64 = url.split(",")[1] || "";
-        if (_b64bytes(b64) > 8*1024*1024){ q = 0.72; try { url = cv.toDataURL("image/jpeg", q); b64 = url.split(",")[1] || ""; } catch(e2){} }
-        res({ dataBase64:b64, mimeType:"image/jpeg" });
-      };
-      img.src = fr.result; };
-    fr.readAsDataURL(file); }); }
-  function rawDoc(file){ return new Promise((res, rej) => {
-    const t = String(file.type || ""); let mm = /^image\/(jpe?g|png|webp|heic|heif)$/.test(t) ? t : "";
-    if (!mm){ const m = /\.([a-z0-9]+)$/i.exec(String(file.name || "")); mm = (m && RAW_MIME[m[1].toLowerCase()]) || ""; }
-    if (!mm){ rej(new Error("decode")); return; }
-    if (file.size > 10*1024*1024){ rej(new Error("toolarge")); return; }
-    const fr = new FileReader(); fr.onerror = () => rej(new Error("read"));
-    fr.onload = () => { const b64 = String(fr.result).split(",")[1] || ""; if (!b64){ rej(new Error("read")); return; } res({ dataBase64:b64, mimeType:mm }); };
-    fr.readAsDataURL(file); }); }
-  function readDocFile(f){
-    const t = f.type || "", nm = f.name || "";
-    if (/^image\//.test(t) || (t === "" && /\.(jpe?g|png|webp|heic|heif)$/i.test(nm)))
-      return downscaleDoc(f).catch(err => { if (err && err.message === "decode") return rawDoc(f); throw err; });
-    return new Promise((res, rej) => { const fr = new FileReader(); fr.onerror = () => rej(new Error("read"));
-      fr.onload = () => res({ dataBase64:String(fr.result).split(",")[1] || "", mimeType:"application/pdf" }); fr.readAsDataURL(f); });
+  /* 예약 업로드 파이프라인(1800px 다운스케일 + HEIC 원본 폴백 + PDF 원본)
+     입력=선택 즉시 캐시한 슬롯{url(dataURL), rawMime, isPdf} — 저장 시 File을 다시 읽지 않음
+     (갤럭시 등 모바일 File blob 무효화 → "파일 읽기 실패" 원천 차단, 경비 영수증과 동일 패턴) */
+  function downscaleDoc(dataUrl){ return new Promise((res, rej) => {
+    const img = new Image(); img.onerror = () => rej(new Error("decode"));
+    img.onload = () => {
+      const w = img.naturalWidth || img.width, hh = img.naturalHeight || img.height;
+      if (!w || !hh){ rej(new Error("decode")); return; }
+      const mx = 1800, sc = Math.min(1, mx/Math.max(w,hh)), cw = Math.max(1, Math.round(w*sc)), ch = Math.max(1, Math.round(hh*sc));
+      const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
+      const ctx = cv.getContext("2d"); if (!ctx){ rej(new Error("canvas")); return; }
+      ctx.drawImage(img, 0, 0, cw, ch);
+      let url, b64, q = 0.85;
+      try { url = cv.toDataURL("image/jpeg", q); } catch(e){ rej(new Error("canvas")); return; }
+      b64 = url.split(",")[1] || "";
+      if (_b64bytes(b64) > 8*1024*1024){ q = 0.72; try { url = cv.toDataURL("image/jpeg", q); b64 = url.split(",")[1] || ""; } catch(e2){} }
+      res({ dataBase64:b64, mimeType:"image/jpeg" });
+    };
+    img.src = dataUrl; }); }
+  function rawDoc(p){ return new Promise((res, rej) => {
+    if (!p.rawMime){ rej(new Error("decode")); return; }
+    const b64 = String(p.url || "").split(",")[1] || "";
+    if (!b64){ rej(new Error("read")); return; }
+    if (_b64bytes(b64) > 10*1024*1024){ rej(new Error("toolarge")); return; }
+    res({ dataBase64:b64, mimeType:p.rawMime }); }); }
+  function readDocFile(p){
+    if (p.isPdf){ const b64 = String(p.url || "").split(",")[1] || "";
+      return b64 ? Promise.resolve({ dataBase64:b64, mimeType:"application/pdf" }) : Promise.reject(new Error("read")); }
+    return downscaleDoc(p.url).catch(err => { if (err && err.message === "decode") return rawDoc(p); throw err; });
   }
   function uploadOne(id, f){
     return readDocFile(f).then(p => postEntry({ action:"uploadDoc", token:TOKEN, sheet:"bookings", id, mimeType:p.mimeType, dataBase64:p.dataBase64 })
@@ -1777,7 +1773,7 @@
       ' <a target="_blank" rel="noopener noreferrer" href="https://drive.google.com/file/d/' + encodeURIComponent(a.fileId) + '/view">기존 첨부 ' + (i+1) + "</a>" +
       (a.size ? ' <span style="color:var(--muted)">' + Math.max(1, Math.round(a.size/1024)) + "KB</span>" : "") +
       '<span class="x" data-ex="' + i + '">✕</span></div>').join("");
-    const pd = bPend.map((f,i) => '<div class="attitem">📎 ' + esc(f.name.slice(0,24)) + ' <span style="color:var(--muted)">(저장 시 업로드)</span><span class="x" data-pd="' + i + '">✕</span></div>').join("");
+    const pd = bPend.map((f,i) => '<div class="attitem">📎 ' + esc(String(f.name||"").slice(0,24)) + ' <span style="color:var(--muted)">(' + (f.reading ? "읽는 중…" : "저장 시 업로드") + ')</span><span class="x" data-pd="' + i + '">✕</span></div>').join("");
     $("#b-atts").innerHTML = ex + pd;
   }
   function openBdlg(e){
@@ -1799,13 +1795,27 @@
   $("#b-attadd").addEventListener("click", () => bFile.click());
   bFile.addEventListener("change", () => {
     [...(bFile.files || [])].forEach(f => {
-      const t = f.type || "", okT = /^image\//.test(t) || t === "application/pdf" || /\.pdf$/i.test(f.name || "") || (t === "" && /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name || ""));
-      if (!okT){ toast("이미지/PDF만 첨부 가능: " + f.name); return; }
-      if (f.size > 14*1024*1024){ toast("파일이 너무 큽니다(14MB↓): " + f.name); return; }
+      const t = f.type || "", nm = f.name || "file";
+      const isPdf = t === "application/pdf" || /\.pdf$/i.test(nm);
+      const okT = isPdf || /^image\//.test(t) || (t === "" && /\.(jpe?g|png|webp|heic|heif)$/i.test(nm));
+      if (!okT){ toast("이미지/PDF만 첨부 가능: " + nm); return; }
+      if (f.size > 14*1024*1024){ toast("파일이 너무 큽니다(14MB↓): " + nm); return; }
       if (bDraft.atts.length + bPend.length >= 8){ toast("첨부는 최대 8개"); return; }
-      bPend.push(f);
+      // ★ 선택 즉시 dataURL로 읽어 슬롯에 캐시 — 저장 시 File을 다시 읽지 않음(갤럭시 blob 무효화 → "파일 읽기 실패" 방지)
+      let rawMime = /^image\/(jpe?g|png|webp|heic|heif)$/.test(t) ? t : "";
+      if (!rawMime){ const m = /\.([a-z0-9]+)$/i.exec(nm); rawMime = (m && RAW_MIME[m[1].toLowerCase()]) || ""; }
+      const slot = { name:nm, isPdf, rawMime, url:"", reading:true };
+      bPend.push(slot); battRender();
+      const fr = new FileReader();
+      fr.onerror = () => { bPend = bPend.filter(x => x !== slot); battRender(); toast("파일 읽기 실패: " + nm + " — 다시 선택해 주세요"); };
+      fr.onload = () => {
+        slot.url = String(fr.result || ""); slot.reading = false;
+        if (!slot.url || slot.url.indexOf(",") < 0){ bPend = bPend.filter(x => x !== slot); toast("파일 읽기 실패: " + nm); }
+        battRender();
+      };
+      try { fr.readAsDataURL(f); } catch(e){ bPend = bPend.filter(x => x !== slot); battRender(); toast("파일 읽기 실패: " + nm); }
     });
-    bFile.value = ""; battRender();
+    bFile.value = ""; battRender();   // 바이트는 이미 캐시(읽기 시작)됨 — value 초기화 안전(같은 파일 재선택 허용)
   });
   $("#b-atts").addEventListener("click", ev => {
     const x = ev.target.closest(".x"); if (!x) return;
@@ -1816,6 +1826,7 @@
   $("#bdlg-back").addEventListener("click", () => { if (!bkBusy) bdlg.classList.remove("open"); });
   $("#b-save").addEventListener("click", () => {
     if (bkBusy) return;
+    if (bPend.some(p => p.reading)){ toast("파일 읽는 중 — 잠시 후 다시 시도"); return; }
     const title = $("#b-title").value.trim();
     if (!title){ toast("제목을 입력하세요"); return; }
     if (!configured()){ toast("연동 설정이 필요합니다"); return; }
