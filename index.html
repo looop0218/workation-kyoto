@@ -1542,7 +1542,7 @@
 
     h += '<div class="empty2" style="padding:16px 6px 4px;text-align:left"><b>정산 기준</b><br>' +
       (S.notes || []).map(n => "· " + esc(n)).join("<br>") + "</div>";
-    h += '<button class="ghost" type="button" data-xlsx="1" style="margin:12px 0 0;width:100%">📊 엑셀(.xlsx)로 내려받기 — 요약 · 전체내역</button>';
+    h += '<button class="ghost" type="button" data-xlsx="1" style="margin:12px 0 0;width:100%">📊 엑셀(.xlsx)로 내려받기 — 전체 내역 + 합계·환급</button>';
     h += '<button class="ghost" type="button" data-goplan="1" style="margin:8px 0 4px;width:100%">🗺️ 여행 기록 보기 — 일정 · 맛집 · 잔액 · 예약 · 회화</button>';
 
     expBody.innerHTML = h;
