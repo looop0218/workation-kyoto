@@ -1614,6 +1614,9 @@
         const o = (typeof cell === "object") ? cell : { v: cell };
         if (o.v == null || o.v === "") return;
         const ref = _colRef(ci) + (ri+1);
+        // 수식 셀 — 계산값을 함께 넣어 엑셀 밖에서 열어도 숫자가 보이게 한다
+        if (o.f){ x += '<c r="' + ref + '" s="' + (o.b?3:2) + '"><f>' + _xe(o.f) + "</f>" +
+          ((typeof o.v === "number" && isFinite(o.v)) ? "<v>" + o.v + "</v>" : "") + "</c>"; return; }
         if (o.d){ const sv = _dser(o.v); if (sv != null){ x += '<c r="' + ref + '" s="4"><v>' + sv + "</v></c>"; return; } }
         if (typeof o.v === "number" && isFinite(o.v)) x += '<c r="' + ref + '" s="' + (o.b?3:2) + '"><v>' + o.v + "</v></c>";
         else x += '<c r="' + ref + '" s="' + (o.b?1:0) + '" t="inlineStr"><is><t xml:space="preserve">' + _xe(o.v) + "</t></is></c>";
@@ -1652,21 +1655,14 @@
   }
 
   // 결산 내려받기 — 한 시트('정산상세내역')에 전 항목을 날짜순으로 깔고,
-  // 아래에 합계 · 잔여 · 환급 · 송금 · 분류별 · 기준 블록을 이어 붙인다(C열=구분, E열=설명).
+  // 아래에 합계 · 잔여 · 환급 블록을 수식으로 이어 붙인다(C열=구분, E열=설명).
   function downloadXlsx(){
     const S = SETTLEMENT;
     if (!S){ toast("내려받을 결산 정보가 없습니다"); return; }
-    const A = S.assets, tr = MEMBERS.indexOf(S.treasurer) >= 0 ? S.treasurer : MEMBERS[0];
-    const others = MEMBERS.filter(m => m !== tr);
+    const A = S.assets;
     const B = v => ({ v:v, b:true }), D = v => ({ v:v, d:true });
     const NC = 14;                                        // A~N 14열
     const pad = a => { const r = a.slice(); while (r.length < NC) r.push(""); return r; };
-    const blk = (tag, desc, yen, krw, per, bold) => {     // 하단 블록 공통 행
-      const r = ["", "", bold ? B(tag) : tag, "", bold ? B(desc) : desc, "", "",
-                 yen == null ? "" : (bold ? B(yen) : yen), krw == null ? "" : (bold ? B(krw) : krw)];
-      MEMBERS.forEach(m => r.push(per && per[m] != null ? (bold ? B(per[m]) : per[m]) : ""));
-      r.push(""); return r;
-    };
     const rows = [];
     rows.push([B("날짜"), B("요일"), B("구분"), B("분류"), B("내용"), B("결제수단"), B("분담"), B("엔화(¥)"), B("원화(₩)")]
       .concat(MEMBERS.map(m => B(m + " 분담(₩)"))).concat([B("영수증")]));
@@ -1699,30 +1695,35 @@
       rows.push(pad(["", "", "", "", "전 항목 내역은 연결된 뒤 채워집니다 — 아래 합계·환급은 확정 기준으로 정확합니다."]));
     }
 
+    // ── 하단 요약: 상수가 아니라 실제 수식으로 넣어 시트에서 그대로 검산·수정이 되게 한다 ──
+    const eF = 2, eL = rows.length;                                    // 본문 첫 행·끝 행
+    const rg = c => "$" + c + "$" + eF + ":$" + c + "$" + eL;
+    const MCOL = MEMBERS.map((m,i) => _colRef(9 + i));                 // 멤버 분담 열 J~M
+    const evalRate = Number(S.walletEvalRate) > 0 ? Number(S.walletEvalRate) * 100 : S.rates.wallet;
+    // 라이브 내역이 없으면 참조할 행이 없으므로 확정 상수로 대체
+    const FV = (f, v, b) => lv ? { f:f, v:v, b:b } : (b ? B(v) : v);
+    const sumIf = (kind, col) => 'SUMIF(' + rg("C") + ',"' + kind + '",' + rg(col) + ")";
     rows.push([]);
-    if (lv){
-      rows.push(blk("합계", "지출 " + lv.EX.length + "건", tY, tK, mt, true));
-      rows.push(blk("합계", "충전 " + A.chargeCnt + "회", A.chargeYen, A.chargeKrw));
-      rows.push(blk("합계", "환전 " + A.cashCnt + "회", A.cashYen, A.cashKrw));
-    } else {
-      rows.push(blk("합계", "지출 " + A.spendCnt + "건", A.spendYen, A.spendKrw, null, true));
-      rows.push(blk("합계", "충전 " + A.chargeCnt + "회", A.chargeYen, A.chargeKrw));
-      rows.push(blk("합계", "환전 " + A.cashCnt + "회", A.cashYen, A.cashKrw));
-    }
+    const rSpend = rows.length + 1, rChg = rSpend + 1, rExc = rSpend + 2;
+    const rUnex = rExc + 2, rLeft = rUnex + 2, rRef = rUnex + 3;
+    rows.push(pad(["", "", B("합계"), "", B("지출 " + (lv ? lv.EX.length : A.spendCnt) + "건"), "", "",
+      FV(sumIf("지출","H"), lv ? tY : A.spendYen, true), FV(sumIf("지출","I"), lv ? tK : A.spendKrw, true)]
+      .concat(MEMBERS.map((m,i) => FV(sumIf("지출", MCOL[i]), lv ? mt[m] : S.used[m], true)))));
+    rows.push(pad(["", "", "합계", "", "충전 " + A.chargeCnt + "회", "", "",
+      FV(sumIf("충전","H"), A.chargeYen), FV(sumIf("충전","I"), A.chargeKrw)]));
+    rows.push(pad(["", "", "합계", "", "환전 " + A.cashCnt + "회", "", "",
+      FV(sumIf("환전","H"), A.cashYen), FV(sumIf("환전","I"), A.cashKrw)]));
     rows.push([]);
-    rows.push(blk("잔여", "① 미환전 원화 (회비 " + fmt(A.fundTotal) + " − 충전 − 환전)", null, A.unexch));
-    rows.push(blk("잔여", "② 카드 잔액 (충전 실효환율 ¥100=₩" + (Number(S.walletEvalRate) > 0 ? Number(S.walletEvalRate)*100 : S.rates.wallet) + ")", A.walletYen, A.walletKrw));
-    rows.push(blk("잔여", "잔여 총액 (①+②) → 전액 환급", null, A.total, null, true));
-    rows.push(blk("환급", "최종 환급액 (낸 회비 − 쓴 금액)", null, A.total, S.refunds, true));
-    rows.push([]);
-    others.forEach(m => rows.push(blk("송금", tr + " → " + m, null, S.refunds[m])));
-    rows.push(blk("송금", "송금 합계 (" + others.length + "건)", null, others.reduce((s,m) => s + S.refunds[m], 0)));
-    rows.push(blk("송금", tr + " 보유 = 현금 " + fmt(A.treasurerCash) + " + 카드 " + fmt(A.walletKrw), null, S.refunds[tr]));
-    rows.push([]);
-    Object.keys(S.byCat).sort((a,b2) => S.byCat[b2] - S.byCat[a]).forEach(c => rows.push(blk("분류", c, S.byCat[c], null)));
-    rows.push([]);
-    (S.notes || []).forEach(n => rows.push(pad(["", "", "기준", "", "· " + n])));
-    if (lv) rows.push(pad(["", "", "", "", "※ 행별로 반올림한 합이라 확정 총 지출(₩" + fmt(A.spendKrw) + ")과 몇 원 차이가 날 수 있습니다."]));
+    rows.push(pad(["", "", "잔여", "", "① 미환전 원화 (회비 " + fmt(A.fundTotal) + " − 충전 − 환전)", "", "", "",
+      FV(A.fundTotal + "-I" + rChg + "-I" + rExc, A.unexch)]));
+    rows.push(pad(["", "", "잔여", "", "② 카드 잔액 (충전 실효환율 ¥100=₩" + evalRate + ")", "", "",
+      FV("H" + rChg + "-SUMIFS(" + rg("H") + "," + rg("C") + ',"지출",' + rg("F") + ',"월렛")', A.walletYen),
+      FV("I" + rLeft + "-I" + rUnex, A.walletKrw)]));
+    rows.push(pad(["", "", B("잔여"), "", B("잔여 총액 (①+②) → 전액 환급"), "", "", "",
+      FV("SUM(" + MCOL[0] + rRef + ":" + MCOL[MCOL.length-1] + rRef + ")", A.total, true)]));
+    rows.push(pad(["", "", B("환급"), "", B("최종 환급액 (낸 회비 − 쓴 금액)"), "", "", "",
+      FV("SUM(" + MCOL[0] + rRef + ":" + MCOL[MCOL.length-1] + rRef + ")", A.total, true)]
+      .concat(MEMBERS.map((m,i) => FV(S.paid[m] + "-" + MCOL[i] + rSpend, S.refunds[m], true)))));
 
     try {
       const url = URL.createObjectURL(_xlsxBlob([{ name:"정산상세내역", rows:rows, freeze:true,
