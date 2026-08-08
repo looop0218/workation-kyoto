@@ -1542,7 +1542,8 @@
 
     h += '<div class="empty2" style="padding:16px 6px 4px;text-align:left"><b>정산 기준</b><br>' +
       (S.notes || []).map(n => "· " + esc(n)).join("<br>") + "</div>";
-    h += '<button class="ghost" type="button" data-goplan="1" style="margin:10px 0 4px;width:100%">🗺️ 여행 기록 보기 — 일정 · 맛집 · 잔액 · 예약 · 회화</button>';
+    h += '<button class="ghost" type="button" data-xlsx="1" style="margin:12px 0 0;width:100%">📊 엑셀(.xlsx)로 내려받기 — 요약 · 전체내역</button>';
+    h += '<button class="ghost" type="button" data-goplan="1" style="margin:8px 0 4px;width:100%">🗺️ 여행 기록 보기 — 일정 · 맛집 · 잔액 · 예약 · 회화</button>';
 
     expBody.innerHTML = h;
     $("#fab").style.display = "none";   // 종료된 여행 — 결산 화면에서는 '＋ 경비 추가'를 감춘다
@@ -1554,6 +1555,175 @@
     const any = Array.prototype.some.call(expBody.querySelectorAll("#fin-detail .frows"), x => x.style.display === "none");
     chip.textContent = any ? "모두 펼치기" : "모두 접기";
   }
+  /* ── 엑셀(.xlsx) 내려받기 ──
+     외부 라이브러리 없이 최소 OOXML을 무압축(STORE) ZIP으로 묶는다 — CSP·오프라인에서도 동작.
+     CSV와 달리 숫자가 숫자로 들어가고 인코딩 물음 없이 열린다. */
+  const _crcT = (() => { const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++){ let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; }
+    return t; })();
+  function _crc32(u8){ let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = _crcT[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function _zipStore(files){
+    const enc = new TextEncoder(), body = [], cdir = [];
+    let off = 0, n = 0;
+    files.forEach(f => {
+      const nm = enc.encode(f.name), data = enc.encode(f.text), crc = _crc32(data), sz = data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x800, true);   // bit11 = 파일명 UTF-8
+      lh.setUint16(8, 0, true); lh.setUint16(10, 0, true); lh.setUint16(12, 0x0021, true);          // 무압축 · 1980-01-01
+      lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true);
+      lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+      body.push(new Uint8Array(lh.buffer), nm, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+      ch.setUint16(8, 0x800, true); ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0x0021, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true);
+      ch.setUint16(28, nm.length, true); ch.setUint16(30, 0, true); ch.setUint16(32, 0, true);
+      ch.setUint16(34, 0, true); ch.setUint16(36, 0, true); ch.setUint32(38, 0, true);
+      ch.setUint32(42, off, true);
+      cdir.push(new Uint8Array(ch.buffer), nm);
+      off += 30 + nm.length + sz; n++;
+    });
+    const cdSize = cdir.reduce((s,x) => s + x.length, 0);
+    const eo = new DataView(new ArrayBuffer(22));
+    eo.setUint32(0, 0x06054b50, true); eo.setUint16(4, 0, true); eo.setUint16(6, 0, true);
+    eo.setUint16(8, n, true); eo.setUint16(10, n, true);
+    eo.setUint32(12, cdSize, true); eo.setUint32(16, off, true); eo.setUint16(20, 0, true);
+    const parts = body.concat(cdir, [new Uint8Array(eo.buffer)]);
+    const out = new Uint8Array(parts.reduce((s,x) => s + x.length, 0));
+    let p = 0; parts.forEach(x => { out.set(x, p); p += x.length; });
+    return out;
+  }
+  const _xe = s => String(s).replace(/[&<>]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[c]));
+  const _colRef = i => { let s = "", k = i + 1; while (k > 0){ const r = (k - 1) % 26; s = String.fromCharCode(65 + r) + s; k = (k - 1 - r) / 26; } return s; };
+  // 셀은 값 그대로거나 {v, b:굵게}. 숫자면 #,##0 서식(s=2/3), 문자열이면 인라인 문자열(s=0/1)
+  function _sheetXml(rows, widths){
+    let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+    if (widths && widths.length){
+      x += "<cols>";
+      widths.forEach((w,i) => { x += '<col min="' + (i+1) + '" max="' + (i+1) + '" width="' + w + '" customWidth="1"/>'; });
+      x += "</cols>";
+    }
+    x += "<sheetData>";
+    rows.forEach((row, ri) => {
+      x += '<row r="' + (ri+1) + '">';
+      (row || []).forEach((cell, ci) => {
+        if (cell == null || cell === "") return;
+        const o = (typeof cell === "object") ? cell : { v: cell };
+        if (o.v == null || o.v === "") return;
+        const ref = _colRef(ci) + (ri+1);
+        if (typeof o.v === "number" && isFinite(o.v)) x += '<c r="' + ref + '" s="' + (o.b?3:2) + '"><v>' + o.v + "</v></c>";
+        else x += '<c r="' + ref + '" s="' + (o.b?1:0) + '" t="inlineStr"><is><t xml:space="preserve">' + _xe(o.v) + "</t></is></c>";
+      });
+      x += "</row>";
+    });
+    return x + "</sheetData></worksheet>";
+  }
+  function _xlsxBlob(sheets){
+    const ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships", f = [];
+    f.push({ name:"[Content_Types].xml", text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      sheets.map((s,i) => '<Override PartName="/xl/worksheets/sheet' + (i+1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + "</Types>" });
+    f.push({ name:"_rels/.rels", text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + ns + '/officeDocument" Target="xl/workbook.xml"/></Relationships>' });
+    f.push({ name:"xl/workbook.xml", text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' + ns + '"><sheets>' +
+      sheets.map((s,i) => '<sheet name="' + _xe(s.name) + '" sheetId="' + (i+1) + '" r:id="rId' + (i+1) + '"/>').join("") + "</sheets></workbook>" });
+    f.push({ name:"xl/_rels/workbook.xml.rels", text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map((s,i) => '<Relationship Id="rId' + (i+1) + '" Type="' + ns + '/worksheet" Target="worksheets/sheet' + (i+1) + '.xml"/>').join("") +
+      '<Relationship Id="rId' + (sheets.length+1) + '" Type="' + ns + '/styles" Target="styles.xml"/></Relationships>' });
+    f.push({ name:"xl/styles.xml", text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0"/></numFmts>' +
+      '<fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4">' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+      '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+      '<xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+      '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' });
+    sheets.forEach((s,i) => f.push({ name:"xl/worksheets/sheet" + (i+1) + ".xml", text:_sheetXml(s.rows, s.widths) }));
+    return new Blob([_zipStore(f)], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+
+  // 결산을 '요약' + '전체내역' 두 시트로 내려받기
+  function downloadXlsx(){
+    const S = SETTLEMENT;
+    if (!S){ toast("내려받을 결산 정보가 없습니다"); return; }
+    const A = S.assets, tr = MEMBERS.indexOf(S.treasurer) >= 0 ? S.treasurer : MEMBERS[0];
+    const others = MEMBERS.filter(m => m !== tr);
+    const period = routeDays.length ? routeDays[0].date.replace(/-/g,".") + "–" + routeDays[routeDays.length-1].date.slice(8) : "";
+    const B = (v) => ({ v:v, b:true });
+    const sum = [];
+    sum.push([B((trip.title || "여행") + " — 최종 정산")]);
+    sum.push([period + " · " + MEMBERS.join(" · ") + " · " + S.finalizedAt + " 확정"]);
+    sum.push([]);
+    sum.push([B("자금 흐름")]);
+    sum.push(["회비 각출", MEMBERS.length + "인", A.fundTotal]);
+    sum.push(["트레블월렛 충전", "¥" + fmt(A.chargeYen) + " · " + A.chargeCnt + "회", A.chargeKrw]);
+    sum.push(["현금 환전", "¥" + fmt(A.cashYen) + " · " + A.cashCnt + "회", A.cashKrw]);
+    sum.push(["총 지출", "¥" + fmt(A.spendYen) + " · " + A.spendCnt + "건", -A.spendKrw]);
+    sum.push(["잔여 ① 미환전 원화", "", A.unexch]);
+    sum.push(["잔여 ② 월렛카드", "¥" + fmt(A.walletYen) + " · ¥100=₩" + (Number(S.walletEvalRate) > 0 ? Number(S.walletEvalRate)*100 : S.rates.wallet), A.walletKrw]);
+    sum.push([B("잔여 총액 → 전액 환급"), "", B(A.total)]);
+    sum.push([]);
+    sum.push([B("멤버별 환급")]);
+    sum.push([B("멤버"), B("낸 회비"), B("쓴 금액"), B("환급액")]);
+    MEMBERS.forEach(m => sum.push([m + (m === tr ? " (총무)" : ""), S.paid[m], S.used[m], B(S.refunds[m])]));
+    sum.push([B("합계"), B(MEMBERS.reduce((s,m) => s + S.paid[m], 0)), B(MEMBERS.reduce((s,m) => s + S.used[m], 0)), B(A.total)]);
+    sum.push([]);
+    sum.push([B("송금 (총무 " + tr + " → 각자)")]);
+    others.forEach(m => sum.push([tr + " → " + m, "", "", S.refunds[m]]));
+    sum.push(["송금 합계", "", "", others.reduce((s,m) => s + S.refunds[m], 0)]);
+    sum.push([tr + " 보유", "현금 " + fmt(A.treasurerCash) + " + 카드 " + fmt(A.walletKrw), "", S.refunds[tr]]);
+    sum.push([]);
+    sum.push([B("분류별 지출 (엔화)")]);
+    Object.keys(S.byCat).sort((a,b) => S.byCat[b] - S.byCat[a]).forEach(c => sum.push([c, "", S.byCat[c]]));
+    sum.push([]);
+    sum.push([B("정산 기준")]);
+    (S.notes || []).forEach(n => sum.push(["· " + n]));
+    const sheets = [{ name:"요약", rows:sum, widths:[26,30,16,16] }];
+
+    const lv = finalSettle();
+    if (lv){
+      const idTs = x => { const m = /^[a-z](\d{13})/.exec(String(x.id||"")); return m ? Number(m[1]) : 0; };
+      const asc = (a,b2) => String(a.date).localeCompare(String(b2.date)) || (idTs(a) - idTs(b2));
+      const det = [[B("날짜"), B("요일"), B("구분"), B("분류"), B("내용"), B("결제수단"), B("분담"), B("엔화(¥)"), B("원화(₩)")]
+        .concat(MEMBERS.map(m => B(m + " 분담(₩)"))).concat([B("영수증")])];
+      const tot = { y:0, k:0 }, mt = {}; MEMBERS.forEach(m => { mt[m] = 0; });
+      lv.convs.concat(lv.EX).slice().sort(asc).forEach(e => {
+        const conv = isConv(e.cat), a = Number(e.amount)||0;
+        const r = e.paySrc === "cash" ? lv.cR : (e.paySrc === "personal" ? lv.blendR : lv.wR);
+        const krw = conv ? (Number(e.krw)||0) : Math.round(a * r);
+        const sh = conv ? {} : shareOf(e), who = Object.keys(sh).filter(m => sh[m] > 0);
+        const out2 = MEMBERS.filter(m => who.indexOf(m) < 0);
+        const lbl = conv ? "" : (who.length + "인" + (out2.length ? " (" + out2.join("·") + " 제외)" : (e.splits ? " 커스텀" : " 균등")));
+        const nm = conv ? (String(e.memo || "").split(" · ")[0] || (e.cat === "충전" ? "트레블월렛 충전" : "현금 환전"))
+                        : (e.memo || e.cat);
+        const dt = new Date(e.date + "T00:00:00");
+        if (!conv){ tot.y += a; tot.k += krw; }
+        det.push([e.date, isNaN(dt) ? "" : DOW[dt.getDay()], conv ? e.cat : "지출", e.cat, nm,
+          conv ? "" : (e.paySrc === "cash" ? "현금" : (e.paySrc === "personal" ? "개인" : "월렛")), lbl, a, krw]
+          .concat(MEMBERS.map(m => { if (!(sh[m] > 0)) return ""; const v = Math.round(sh[m] * r); mt[m] += v; return v; }))
+          .concat([e.receipt ? "O" : ""]));
+      });
+      det.push([]);
+      det.push([B("지출 합계"), "", "", "", B(lv.EX.length + "건"), "", "", B(tot.y), B(tot.k)].concat(MEMBERS.map(m => B(mt[m]))).concat([""]));
+      det.push([]);
+      det.push(["※ 행별로 반올림한 합이라 요약 시트의 총 지출(₩" + fmt(A.spendKrw) + ")과 몇 원 차이가 납니다. 확정 기준은 요약 시트입니다."]);
+      sheets.push({ name:"전체내역", rows:det, widths:[12,7,8,11,34,10,20,12,12,14,14,14,14,9] });
+    }
+
+    try {
+      const url = URL.createObjectURL(_xlsxBlob(sheets));
+      const a = document.createElement("a");
+      a.href = url; a.download = "교토오사카_정산_" + todayISO().replace(/-/g,"") + ".xlsx";
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+      toast(lv ? "엑셀 저장됨 (요약 · 전체내역)" : "엑셀 저장됨 (요약)");
+    } catch(e){ toast("엑셀 생성 실패"); }
+  }
+
   // 결산 탭으로 전환 — 세그 버튼이 실제로 삽입돼 있을 때만(없으면 조용히 실패하지 않고 false 반환)
   function finalTab(){
     const sg = $("#expseg"), b2 = sg && sg.querySelector('button[data-e="final"]');
@@ -1775,6 +1945,7 @@
     if (ev.target.closest("[data-gobal]")){ goDock("bal"); return; }     // 요약 스트립 → 잔액 화면
     if (ev.target.closest("[data-goplan]")){ goDock("plan"); return; }   // 결산 → 여행 기록(일정)
     if (ev.target.closest("[data-gofinal]")){ finalTab(); return; }      // 중간정산 → 확정 결산
+    if (ev.target.closest("[data-xlsx]")){ downloadXlsx(); return; }     // 결산 → 엑셀 저장
     const meb = ev.target.closest("[data-me]");
     if (meb){ meSet(meb.dataset.me === meGet() ? "" : meb.dataset.me); renderFinal(); return; }   // 재탭이면 선택 해제
     if (ev.target.closest("[data-mereset]")){ meSet(""); renderFinal(); return; }
