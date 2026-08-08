@@ -625,25 +625,25 @@
   const SETTLEMENT = {
     finalizedAt: "2026-08-04",
     treasurer: "권1",
-    walletEvalRate: 9.0,                                     // ¥1당 ₩ (¥100 = ₩900, 팀 합의 평가율)
+    walletEvalRate: null,                                    // null = 카드 잔여를 충전 실효환율(취득원가) 그대로 평가
     rates: { wallet: 919.91, cash: 925 },                    // 실효환율(실제 충전·환전 단가)
-    refunds: { "김1":212664, "서1":212664, "권1":212655, "김2":595779 },
+    refunds: { "김1":212816, "서1":212816, "권1":212807, "김2":595931 },
     paid:    { "김1":1500000, "서1":1500000, "권1":1500000, "김2":1500000 },
     used:    { "김1":1287184, "서1":1287184, "권1":1287193, "김2":904069 },
     assets:  { fundTotal:6000000, chargeYen:501000, chargeKrw:4608751, chargeCnt:5,
                cashYen:20000, cashKrw:185000, cashCnt:1,
                spendYen:517943, spendKrw:4765630, spendCnt:35, receiptCnt:34,
-               unexch:1206249, walletYen:3057, walletKrw:27513, total:1233762,
-               treasurerCash:185142, adjPerHead:152 },
+               unexch:1206249, walletYen:3057, walletKrw:28121, total:1234370,
+               treasurerCash:184686, adjPerHead:0 },
     byCat: { "숙박":260398, "회식·술":179314, "식비":47251, "기타":25780, "입장·관광":5200 },
     notes: [
       "환율: 트레블월렛 실효 ¥100=₩919.91(5회 충전 가중평균) · 현금 ¥100=₩925(7/21 환전 1회)",
       "분담: 기본 4인 균등 · 7/30~31 오사카 구간은 3인(김2 제외) · 숙소는 교토 4인 균등, 오사카 3인 균등",
       "현금 ¥20,000은 교토 구간 공동 지출로 일괄 처리(4인 균등)",
-      "월렛 잔여 ¥3,057은 ¥100=₩900으로 평가(₩27,513)해 환급 재원에 포함 — 카드는 총무 권1 인수, 실효환율 평가 대비 차액은 4인 균등 −₩152/인 조정",
-      "7/31 지하철 ¥240은 팀 결정으로 장부에서 제외 — 실제 카드 잔액(¥2,817)은 장부(¥3,057)보다 ¥240 적고, 그 차액 ₩2,160은 카드를 인수한 총무가 부담",
+      "월렛 잔여 ¥3,057은 충전 실효환율(취득원가) 그대로 ₩28,121로 평가해 환급 재원에 포함 — 카드는 총무 권1 인수",
+      "7/31 지하철 ¥240은 팀 결정으로 장부에서 제외 — 실제 카드 잔액(¥2,817)은 장부(¥3,057)보다 ¥240 적고, 그 차액 ₩2,208은 카드를 인수한 총무가 부담",
       "영수증 34장 첨부(현금 일괄 지출 제외)",
-      "검산: Σ환급 ₩1,233,762 = 미환전 ₩1,206,249 + 월렛 인수 ₩27,513 (잔차 0원)"
+      "검산: Σ환급 ₩1,234,370 = 미환전 ₩1,206,249 + 월렛 인수 ₩28,121 (잔차 0원) · 4명 모두 낸 회비 − 쓴 금액 = 환급액"
     ]
   };
   // 여행 단계 — 첫 화면을 하드코딩하지 않고 오늘 날짜 × 일정으로 판정한다
@@ -1389,12 +1389,16 @@
     if (unexch < 0) return null;
     const rateOf = e => e.paySrc === "cash" ? MS.cR : (e.paySrc === "personal" ? MS.blendR : MS.wR);
     const { net, paid, used } = computeNet(MS, rateOf);
-    const walVal = Math.round(MS.wBal * SETTLEMENT.walletEvalRate);   // 월렛 잔여는 팀 합의 평가율(¥100=₩900)
     const cashVal = Math.round(MS.cBal * MS.cR);
-    const assets = unexch + walVal + cashVal;                          // 남은 공동자금 = 환급 재원
     const raw = {}; MEMBERS.forEach(m => { raw[m] = Math.round(net[m]); });
-    const adj = Math.floor((MEMBERS.reduce((s,m) => s + raw[m], 0) - assets) / MEMBERS.length);
-    const fin = {}; MEMBERS.forEach(m => { fin[m] = raw[m] - adj; });   // 평가 차액은 인원 균등 부담
+    const sumRaw = MEMBERS.reduce((s,m) => s + raw[m], 0);
+    // 월렛 잔여 평가: walletEvalRate가 있으면 그 평가율로 다시 매기고 차액을 인원 균등 부담,
+    // 없으면 충전 실효환율(취득원가) 그대로 — 이 경우 조정 없이 '낸 − 쓴'이 곧 환급액이 된다.
+    const ev = Number(SETTLEMENT.walletEvalRate) > 0 ? Number(SETTLEMENT.walletEvalRate) : 0;
+    const assets = ev ? (unexch + Math.round(MS.wBal * ev) + cashVal) : sumRaw;
+    const adj = ev ? Math.floor((sumRaw - assets) / MEMBERS.length) : 0;
+    const walVal = assets - unexch - cashVal;                          // 카드 평가액(잔여에서 역산 — 합이 항상 닫힌다)
+    const fin = {}; MEMBERS.forEach(m => { fin[m] = raw[m] - adj; });
     const tr = MEMBERS.indexOf(SETTLEMENT.treasurer) >= 0 ? SETTLEMENT.treasurer : MEMBERS[0];
     fin[tr] -= MEMBERS.reduce((s,m) => s + fin[m], 0) - assets;         // 반올림 잔차는 총무가 흡수 → Σ환급 = 재원
     return { fin, paid, used, assets, unexch, walVal, cashVal, adj, treasurer: tr,
@@ -1463,7 +1467,7 @@
       '<div class="s num">' + esc(me) + (me === tr ? " · 총무" : "") + " · 낸 " + won(S.paid[me]) + " · 쓴 " + won(S.used[me]) + adjTxt + "</div>" +
       '<button type="button" data-mereset="1" style="margin-top:11px;background:rgba(255,255,255,.15);color:#fff;border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700">다른 사람 보기</button>';
     else h += '<div class="cap">환급 총액</div><div class="v num">' + won(A.total) + "</div>" +
-      '<div class="s num">미환전 ' + won(A.unexch) + " + 월렛카드 ¥" + fmt(A.walletYen) + "(→ " + won(A.walletKrw) + ") · 잔차 0원</div>" +
+      '<div class="s num">미환전 ' + won(A.unexch) + " + 월렛카드 ¥" + fmt(A.walletYen) + "(→ " + won(A.walletKrw) + ")</div>" +
       '<div class="s" style="margin-top:7px">아래에서 본인을 누르면 내 금액이 크게 표시돼요</div>';
     h += "</div></div>";
 
@@ -1498,7 +1502,8 @@
     h += fr("현금 환전", "¥" + fmt(A.cashYen) + " · " + A.cashCnt + "회", won(A.cashKrw));
     h += fr("총 지출", "¥" + fmt(A.spendYen) + " · " + A.spendCnt + "건", "− " + won(A.spendKrw));
     h += fr("잔여 ① 미환전 원화", "", won(A.unexch));
-    h += fr("잔여 ② 월렛카드", "¥" + fmt(A.walletYen) + " · ¥100=₩900", won(A.walletKrw));
+    const evalTxt = Number(S.walletEvalRate) > 0 ? String(Number(S.walletEvalRate) * 100) : String(S.rates.wallet);
+    h += fr("잔여 ② 월렛카드", "¥" + fmt(A.walletYen) + " · ¥100=₩" + evalTxt, won(A.walletKrw));
     h += '<div class="finrow tot"><span class="l">잔여 총액 (①+②) → 전액 환급</span><span class="v num">' + won(A.total) + "</span></div>";
 
     const cats = Object.keys(S.byCat).sort((a,b2) => S.byCat[b2] - S.byCat[a]);
