@@ -251,6 +251,18 @@
   .cta:disabled{opacity:.55;}
   .empty2{padding:26px 14px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.7;}
 
+  /* ── 결산(확정 정산) — 나머지 시각 요소는 기존 카드·행 클래스를 그대로 재사용 ── */
+  .finbar{display:flex;align-items:center;gap:8px;background:var(--accent-soft);color:var(--accent-ink);
+    border-radius:var(--r-md);padding:11px 12px;margin:2px 0 8px;font-size:12px;font-weight:700;}
+  .finbar button{margin-left:auto;flex:0 0 auto;background:var(--bg);border:.6px solid var(--line);
+    border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:800;color:var(--ink3);}
+  .finrow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 4px;
+    border-bottom:1px solid var(--line);font-size:12.5px;}
+  .finrow .l{color:var(--ink3);} .finrow .v{font-weight:700;}
+  .finrow.tot{border-bottom:none;border-top:2px solid var(--ink);margin-top:2px;padding-top:11px;font-weight:800;font-size:13.5px;}
+  .mecard{cursor:pointer;} .mecard.on{box-shadow:0 0 0 2px var(--accent);}
+  .mecard .av{width:18px;height:18px;font-size:9px;border-width:1.5px;margin-left:0;}
+
   /* ── 데스크톱 ── */
   .t-charge{background:#ccfbf1;} .t-fly{background:#e0f2fe;}
 
@@ -362,7 +374,7 @@
     </div>
     <div class="view" id="v-exp" style="display:none">
       <div class="expbar">
-        <div class="seg" id="expseg"><button class="on" data-e="list">내역</button><button data-e="settle">정산</button></div>
+        <div class="seg" id="expseg"><button class="on" data-e="list">내역</button><button data-e="settle">중간정산</button></div>
         <button class="rfbtn" id="exp-refresh" title="새로고침">↻</button>
       </div>
       <div id="exp-body"></div>
@@ -605,6 +617,40 @@
   const EXP = (TRIP && TRIP.expense) || {};
   const WEBAPP = EXP.webapp_url || "", TOKEN = EXP.token || "";
   const configured = () => !!(WEBAPP && TOKEN);
+
+  /* ── 확정 결산 스냅샷 (2026-08-04 확정 · 08-08 시트 원데이터 전건 재검증) ──
+     화면에 그리는 모든 금액의 단일 출처. 라이브 시트는 대조 배지와 요일별 상세 목록에만 쓴다
+     — 시트가 나중에 수정돼도 4명이 서로 다른 환급액을 보는 일이 없어야 하기 때문.
+     다음 여행에 재사용할 땐 이 상수를 null로 두면 결산 탭과 종료 랜딩이 함께 사라진다. */
+  const SETTLEMENT = {
+    finalizedAt: "2026-08-04",
+    treasurer: "권1",
+    walletEvalRate: 9.0,                                     // ¥1당 ₩ (¥100 = ₩900, 팀 합의 평가율)
+    rates: { wallet: 919.91, cash: 925 },                    // 실효환율(실제 충전·환전 단가)
+    refunds: { "김1":211940, "서1":211940, "권1":211931, "김2":595791 },
+    paid:    { "김1":1500000, "서1":1500000, "권1":1500000, "김2":1500000 },
+    used:    { "김1":1287920, "서1":1287920, "권1":1287929, "김2":904069 },
+    assets:  { fundTotal:6000000, chargeYen:501000, chargeKrw:4608751, chargeCnt:5,
+               cashYen:20000, cashKrw:185000, cashCnt:1,
+               spendYen:518183, spendKrw:4767838, spendCnt:36, receiptCnt:35,
+               unexch:1206249, walletYen:2817, walletKrw:25353, total:1231602,
+               treasurerCash:186578, adjPerHead:140 },
+    byCat: { "숙박":260398, "회식·술":179314, "식비":47251, "기타":25780, "입장·관광":5200, "교통":240 },
+    notes: [
+      "환율: 트레블월렛 실효 ¥100=₩919.91(실제 충전 단가) · 현금 ¥100=₩925",
+      "분담: 기본 4인 균등 · 7/30~31 오사카 구간은 3인(김2 제외) · 숙소는 교토 4인 균등, 오사카 3인 균등",
+      "현금 ¥20,000은 교토 구간 공동 지출로 일괄 처리(4인 균등)",
+      "월렛 잔여 ¥2,817은 ¥100=₩900으로 평가(₩25,353)해 환급 재원에 포함 — 카드는 총무 권1 인수, 실효환율 평가 대비 차액은 4인 균등 −₩140/인 조정",
+      "영수증 35장 전건 앱 첨부 · 앱 잔액과 트레블월렛 실잔액 1엔 단위 일치 검증",
+      "검산: Σ환급 ₩1,231,602 = 미환전 ₩1,206,249 + 월렛 인수 ₩25,353 (잔차 0원)"
+    ]
+  };
+  // 여행 단계 — 첫 화면을 하드코딩하지 않고 오늘 날짜 × 일정으로 판정한다
+  function tripPhase(today){
+    if (!routeDays.length) return "pre";
+    const f = routeDays[0].date, l = routeDays[routeDays.length-1].date;
+    return today < f ? "pre" : (today > l ? "post" : "during");
+  }
 
   $("#trip-ttl").textContent = (trip.title || "여행").replace(/\s*\(.*\)\s*$/, "");
   if (routeDays.length) {
@@ -974,8 +1020,11 @@
     if (t.key === "all"){ renderAll(); renderAllList(); }
     else if (t.key === "food"){ foodEnter(); if (isMobile()){ sheet.classList.add("anim"); setSheet(DET.full, "full"); } }  // 필터·리스트 탐색 공간 확보
     else { renderDay(t.day, true); renderDayList(t.day); }
-    $("#food-fab").style.display = (t.key === "food" && configured()) ? "flex" : "none";
-    $("#plan-fab").style.display = (t.key !== "food" && configured()) ? "flex" : "none";
+    // 일정 뷰가 실제로 보일 때만 FAB 노출 — 맨 아래 itineraryList 콜백이 로드 직후 select()를 다시 부르는데,
+    // 이 가드가 없으면 경비·잔액·결산 화면 위로 '＋ 일정 추가'가 되살아난다
+    const planShown = $("#v-plan").style.display !== "none";
+    $("#food-fab").style.display = (planShown && t.key === "food" && configured()) ? "flex" : "none";
+    $("#plan-fab").style.display = (planShown && t.key !== "food" && configured()) ? "flex" : "none";
     // 독 활성 동기화: 일정 뷰 안에서 날짜↔맛집 전환 시 하단 내비도 따라감
     if ($("#v-plan").style.display !== "none")
       document.querySelectorAll(".dock button").forEach(x => x.classList.toggle("on", x.dataset.v === (key === "food" ? "food" : "plan")));
@@ -1054,7 +1103,7 @@
   const CAT_EMO = {"식비":"🍜","교통":"🚆","입장·관광":"🏯","회식·술":"🍻","숙박":"🏨","기타":"🧾","충전":"💰","환전":"💱"};
   const CAT_TILE2 = {"식비":"t-food","교통":"t-move","입장·관광":"t-see","회식·술":"t-cafe","숙박":"t-stay","기타":"t-etc","충전":"t-charge","환전":"t-charge"};
   const isConv = c => c === "충전" || c === "환전";   // 환전함(회비→엔화 전환) 분류 — 지출 목록·정산 소진에서 제외
-  const LSKEY = "wk_exp_cache_v1";
+  const LSKEY = "wk_exp_cache_v1", FKEY = "wk_fund_cache_v1", MEKEY = "wk_me";
   const fmt = n => Math.round(Number(n)||0).toLocaleString();
   const num = v => { const n = parseInt(String(v||"").replace(/[^\d]/g,""), 10); return isNaN(n) ? 0 : n; };
   const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
@@ -1213,6 +1262,9 @@
              unexch: Math.max(0, fundTotal - chK - cxK) };
   }
   function renderExp(){
+    // 결산은 종료된 여행의 읽기 전용 화면 — FAB을 감추고, 내역·정산으로 돌아오면 되살린다
+    $("#fab").style.display = (expVisible() && expTab !== "final") ? "flex" : "none";
+    if (expTab === "final"){ renderFinal(); return; }
     if (expTab === "settle"){ renderSettle(); return; }
     const MS = moneyState(), EX = MS.EX;
     if (!EX.length){
@@ -1259,16 +1311,11 @@
     expBody.innerHTML = h;
   }
 
-  /* 렌더: 정산 (회비 기반 · 원화) — 트레블월렛 결제는 결제자 무관, 각자 (낸 회비+개인결제)−(분담 소진) */
-  function renderSettle(){
-    const MS = moneyState(), EX = MS.EX;
-    if (!EX.length && !fundItems.length){ expBody.innerHTML = '<div class="card empty2">정산할 데이터가 없습니다.</div>'; return; }
-    // 실효환율(₩/¥): 결제수단별 — 월렛=충전 환율·현금=환전 환율·개인=전체 환전 평균(잔액 화면 게이지와 일치). 환전 이력 없으면 앱 환율 폴백
-    const rateOf = e => e.paySrc === "cash" ? MS.cR : (e.paySrc === "personal" ? MS.blendR : MS.wR);
-    // net(원화) = 낸 것(회비 각출 + 개인결제) − 쓴 것(분담 소진). 공동(월렛·현금) 결제는 payer 채권 없음
+  // 낸 것/쓴 것/차액 누적 — 실시간 정산과 확정 결산이 같은 식을 쓰도록 분리
+  function computeNet(MS, rateOf){
     const net = {}, paid = {}, used = {}; MEMBERS.forEach(m => { net[m]=0; paid[m]=0; used[m]=0; });
     fundItems.forEach(f => { const m = f.payer; if (m && net[m] != null){ const k = Number(f.krw)||0; net[m]+=k; paid[m]+=k; } });
-    EX.forEach(e => {
+    MS.EX.forEach(e => {
       const personal = e.paySrc === "personal";
       // 개인결제인데 결제자가 멤버 밖(이상 데이터)이면 소진·채권을 함께 스킵 — 비대칭 반영 방지
       if (personal && !(e.payer != null && net[e.payer] != null)) return;
@@ -1276,7 +1323,22 @@
       Object.keys(sh).forEach(m => { if (net[m] != null){ const k = sh[m] * r; net[m]-=k; used[m]+=k; } });
       if (personal){ const k = (Number(e.amount)||0) * r; net[e.payer]+=k; paid[e.payer]+=k; }
     });
-    let h = '<div class="empty2" style="padding:6px 4px 10px;text-align:left">회비 각출 + 개인결제 − 분담 소진 기준 · 공동(월렛·현금) 결제는 결제자와 무관 · 엔화는 실효환율(평균 ¥100=₩' + fmt(MS.blendR * 100) + ') 환산</div>';
+    return { net, paid, used };
+  }
+
+  /* 렌더: 정산 (회비 기반 · 원화) — 트레블월렛 결제는 결제자 무관, 각자 (낸 회비+개인결제)−(분담 소진) */
+  function renderSettle(){
+    const MS = moneyState(), EX = MS.EX;
+    if (!EX.length && !fundItems.length){ expBody.innerHTML = '<div class="card empty2">정산할 데이터가 없습니다.</div>'; return; }
+    // 실효환율(₩/¥): 결제수단별 — 월렛=충전 환율·현금=환전 환율·개인=전체 환전 평균(잔액 화면 게이지와 일치). 환전 이력 없으면 앱 환율 폴백
+    const rateOf = e => e.paySrc === "cash" ? MS.cR : (e.paySrc === "personal" ? MS.blendR : MS.wR);
+    // net(원화) = 낸 것(회비 각출 + 개인결제) − 쓴 것(분담 소진). 공동(월렛·현금) 결제는 payer 채권 없음
+    const { net, paid, used } = computeNet(MS, rateOf);
+    // 결산 탭이 있는 상태(여행 종료)에서는 이 화면이 실시간 추정치임을 분명히 하고 확정본으로 가는 길을 준다
+    const hasFinal = !!$("#expseg").querySelector('button[data-e="final"]');
+    let h = hasFinal ? '<button class="ghost" type="button" data-gofinal="1" style="margin:2px 0 10px;width:100%">🧾 확정 결산 리포트 보기</button>' : "";
+    h += '<div class="empty2" style="padding:6px 4px 10px;text-align:left">회비 각출 + 개인결제 − 분담 소진 기준 · 공동(월렛·현금) 결제는 결제자와 무관 · 엔화는 실효환율(평균 ¥100=₩' + fmt(MS.blendR * 100) + ') 환산' +
+      (hasFinal ? " · <b>확정 환급액은 결산 탭 기준</b>" : "") + "</div>";
     h += '<div class="cap" style="display:block;padding:2px 4px 8px">멤버별 정산</div>';
     MEMBERS.forEach(m => {
       const w = net[m];
@@ -1306,6 +1368,194 @@
     }
     h += '<div class="empty2" style="padding:10px">양수=돌려받을(회비 남음) · 음수=더 낼 · 회비 미입력 시 소진만 반영</div>';
     expBody.innerHTML = h;
+  }
+
+  /* ═══════════ 결산(확정 정산) — 여행이 끝난 뒤의 첫 화면 ═══════════ */
+  const meGet = () => { try { const v = localStorage.getItem(MEKEY); return MEMBERS.indexOf(v) >= 0 ? v : ""; } catch(e){ return ""; } };
+  const meSet = v => { try { if (v) localStorage.setItem(MEKEY, v); else localStorage.removeItem(MEKEY); } catch(e){} };
+
+  // 라이브 시트로 확정 수치를 재현 — 표시용이 아니라 대조용이다. 신뢰할 수 없는 조건이면 null을 돌려주고
+  // 화면은 확정 스냅샷만으로 그린다(잘못된 숫자를 조용히 보여주느니 대조를 포기하는 쪽).
+  function finalSettle(){
+    if (!SETTLEMENT || !entries.length || !fundItems.length) return null;
+    const MS = moneyState();
+    if (!MS.EX.length || MS.chY <= 0) return null;
+    // 충전·환전에 실지불 원화가 비면 moneyState가 실시간 환율로 폴백해 환율 자체가 오염된다
+    if (MS.chs.concat(MS.cxs).some(e => e.krw == null || e.krw === "")) return null;
+    const chK = MS.chs.reduce((s,e) => s + (Number(e.krw)||0), 0);
+    const cxK = MS.cxs.reduce((s,e) => s + (Number(e.krw)||0), 0);
+    const unexch = MS.fundTotal - chK - cxK;   // moneyState의 0 클램프 대신 raw — 오염을 조용히 삼키지 않게
+    if (unexch < 0) return null;
+    const rateOf = e => e.paySrc === "cash" ? MS.cR : (e.paySrc === "personal" ? MS.blendR : MS.wR);
+    const { net, paid, used } = computeNet(MS, rateOf);
+    const walVal = Math.round(MS.wBal * SETTLEMENT.walletEvalRate);   // 월렛 잔여는 팀 합의 평가율(¥100=₩900)
+    const cashVal = Math.round(MS.cBal * MS.cR);
+    const assets = unexch + walVal + cashVal;                          // 남은 공동자금 = 환급 재원
+    const raw = {}; MEMBERS.forEach(m => { raw[m] = Math.round(net[m]); });
+    const adj = Math.floor((MEMBERS.reduce((s,m) => s + raw[m], 0) - assets) / MEMBERS.length);
+    const fin = {}; MEMBERS.forEach(m => { fin[m] = raw[m] - adj; });   // 평가 차액은 인원 균등 부담
+    const tr = MEMBERS.indexOf(SETTLEMENT.treasurer) >= 0 ? SETTLEMENT.treasurer : MEMBERS[0];
+    fin[tr] -= MEMBERS.reduce((s,m) => s + fin[m], 0) - assets;         // 반올림 잔차는 총무가 흡수 → Σ환급 = 재원
+    return { fin, paid, used, assets, unexch, walVal, cashVal, adj, treasurer: tr,
+             wR: MS.wR, cR: MS.cR, blendR: MS.blendR, EX: MS.EX, convs: MS.chs.concat(MS.cxs) };
+  }
+
+  // 상세 한 줄 — 경비 내역 행(.erow) 재사용. 원화는 확정 실효환율로만 환산(실시간 환율 jKrw 금지).
+  function finRow(e, lv){
+    const a = Number(e.amount)||0, conv = isConv(e.cat);
+    const r = e.paySrc === "cash" ? lv.cR : (e.paySrc === "personal" ? lv.blendR : lv.wR);
+    const krw = conv ? (Number(e.krw)||0) : Math.round(a * r);
+    let lbl;
+    if (conv) lbl = e.cat + " · 실지불 ₩" + fmt(krw);
+    else {
+      const sh = shareOf(e), who = Object.keys(sh).filter(m => sh[m] > 0);
+      const out = MEMBERS.filter(m => who.indexOf(m) < 0);
+      lbl = e.cat + " · " + who.length + "인" + (out.length ? " (" + out.join("·") + " 제외)" : (e.splits ? " 커스텀" : " 균등"));
+    }
+    const ps = e.paySrc === "personal" ? '<span class="pstag">개인</span>' : (e.paySrc === "cash" ? '<span class="pstag cash">현금</span>' : "");
+    const rc = /^https:\/\/(drive|docs)\.google\.com\//.test(String(e.receipt||""))
+      ? '<a class="rc" data-rc="1" href="' + esc(e.receipt) + '" target="_blank" rel="noopener noreferrer">🧾</a>' : "";
+    // 충전 메모는 뒤에 실지불액·증빙 경로가 붙어 있다 — 이미 아래 줄에 있는 정보라 앞부분만 쓴다
+    const nm = conv ? String(e.memo || e.cat).split(" · ")[0] : (e.memo || e.cat);
+    return '<div class="card erow" style="cursor:default">' +
+      '<span class="tile ' + (CAT_TILE2[e.cat] || "t-etc") + '">' + (CAT_EMO[e.cat] || "🧾") + "</span>" +
+      '<div class="bd"><div class="nm">' + esc(nm) + '</div>' +
+      '<div class="who"><span class="lbl">' + esc(lbl) + "</span>" + ps + "</div></div>" + rc +
+      '<div class="amt"><div class="j num">' + (conv ? "+" : "") + "¥" + fmt(a) + '</div>' +
+      '<div class="k num">₩' + fmt(krw) + "</div></div></div>";
+  }
+  // 날짜 그룹 — 헤더를 탭하면 접기/펼치기
+  function finGroup(key, title, sub, rows, open){
+    return '<div class="fgrp" data-dgrp="' + esc(key) + '">' +
+      '<div class="egroup" style="cursor:pointer;padding:12px 4px 7px"><span class="cap">' + esc(title) + "</span>" +
+      '<span class="cap num" style="color:var(--ink3)">' + esc(sub) + (open ? " ▾" : " ▸") + "</span></div>" +
+      '<div class="frows"' + (open ? "" : ' style="display:none"') + ">" + rows + "</div></div>";
+  }
+
+  function renderFinal(){
+    const S = SETTLEMENT;
+    if (!S){ expBody.innerHTML = '<div class="card empty2">확정된 결산 정보가 없습니다.</div>'; return; }
+    const A = S.assets, me = meGet(), lv = finalSettle();
+    const tr = MEMBERS.indexOf(S.treasurer) >= 0 ? S.treasurer : MEMBERS[0];
+    const won = v => "₩" + fmt(v);
+    const period = routeDays.length
+      ? routeDays[0].date.replace(/-/g, ".") + "–" + routeDays[routeDays.length-1].date.slice(8) : "";
+
+    let h = '<div class="finbar"><span>최종 결산' + (period ? " · " + esc(period) : "") + " · " + esc(S.finalizedAt) + ' 확정</span>' +
+      '<button type="button" data-goplan="1">🗺️ 일정</button></div>';
+    // 라이브 시트 재계산과 확정치 대조 — 본문 수치는 어떤 경우에도 확정 스냅샷을 쓴다
+    let badge = '<span class="chip">확정본 기준 · 시트 대조 중…</span>';
+    if (lv){
+      const d = MEMBERS.reduce((s,m) => s + Math.abs((lv.fin[m]||0) - (S.refunds[m]||0)), 0);
+      badge = d === 0
+        ? '<span class="chip" style="background:var(--accent-soft);color:var(--accent-ink)">✔ 시트 원데이터와 일치</span>'
+        : '<span class="chip" style="background:#fef3c7;color:#b45309">⚠ 시트 변경 감지(차이 ' + won(d) + ") — 확정본 기준 표시</span>";
+    }
+    h += '<div style="padding:0 4px 10px">' + badge + "</div>";
+
+    // 내 환급액 — 본인을 고르면 자기 금액이 히어로로 올라온다(선택은 이 기기에만 저장)
+    h += '<div class="sum3"><div class="sumdark" aria-live="polite">';
+    // 낸−쓴−조정 = 환급액이 되도록 조정항을 반드시 함께 보여준다(안 그러면 4명 모두 ₩140 차이로 검산에 실패한다)
+    const adjTxt = A.adjPerHead > 0 ? " · 월렛 평가조정 −" + won(A.adjPerHead) : "";
+    const adjShort = A.adjPerHead > 0 ? " · 조정 −" + won(A.adjPerHead) : "";
+    if (me) h += '<div class="cap">내가 돌려받을 금액</div><div class="v num">' + won(S.refunds[me]) + "</div>" +
+      '<div class="s num">' + esc(me) + (me === tr ? " · 총무" : "") + " · 낸 " + won(S.paid[me]) + " · 쓴 " + won(S.used[me]) + adjTxt + "</div>" +
+      '<button type="button" data-mereset="1" style="margin-top:11px;background:rgba(255,255,255,.15);color:#fff;border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700">다른 사람 보기</button>';
+    else h += '<div class="cap">환급 총액</div><div class="v num">' + won(A.total) + "</div>" +
+      '<div class="s num">미환전 ' + won(A.unexch) + " + 월렛카드 ¥" + fmt(A.walletYen) + "(→ " + won(A.walletKrw) + ") · 잔차 0원</div>" +
+      '<div class="s" style="margin-top:7px">아래에서 본인을 누르면 내 금액이 크게 표시돼요</div>';
+    h += "</div></div>";
+
+    h += '<div class="cap" style="display:block;padding:2px 4px 3px">멤버별 환급</div>' +
+      (A.adjPerHead > 0 ? '<div class="empty2" style="padding:0 4px 8px;text-align:left;font-size:11px">낸 − 쓴 − 월렛 평가조정 ' + won(A.adjPerHead) + " = 환급액</div>" : "");
+    for (let i = 0; i < MEMBERS.length; i += 2){
+      h += '<div class="statrow">';
+      MEMBERS.slice(i, i+2).forEach(m => {
+        h += '<div class="card mecard' + (m === me ? " on" : "") + '" data-me="' + esc(m) + '" role="button" aria-pressed="' + (m === me) + '" style="padding:12px 14px">' +
+          '<div class="cap" style="display:flex;align-items:center;gap:5px">' + avHtml(m) + esc(m) + (m === tr ? " · 총무" : "") + "</div>" +
+          '<div class="v num" style="font-size:16.5px;font-weight:800;margin-top:5px;color:var(--accent-ink)">' + won(S.refunds[m]) + "</div>" +
+          '<div class="num" style="font-size:10.5px;color:var(--muted);margin-top:2px">낸 ' + won(S.paid[m]) + " · 쓴 " + won(S.used[m]) + adjShort + "</div></div>";
+      });
+      h += "</div>";
+    }
+
+    const others = MEMBERS.filter(m => m !== tr);
+    h += '<div class="cap" style="display:block;padding:6px 4px 8px">송금 · 총무 ' + esc(tr) + " → 각자</div>";
+    ((me && me !== tr) ? [me] : others).forEach(m => {
+      h += '<div class="card payrow">' + avHtml(tr) + '<span class="arrow">→</span>' + avHtml(m) +
+        '<span class="nm">' + esc(tr) + " → " + esc(m) + '</span><span class="amt num">' + won(S.refunds[m]) + "</span></div>";
+    });
+    h += '<div class="empty2" style="padding:8px 12px 12px;text-align:left">' + esc(tr) + "은 자기 몫 " + won(S.refunds[tr]) +
+      " 보유 (현금 " + won(A.treasurerCash) + " + 월렛카드 " + won(A.walletKrw) + ") — 송금 " + others.length + "건이면 정산 종료</div>";
+
+    h += '<div class="cap" style="display:block;padding:6px 4px 8px">자금 흐름</div>';
+    const fr = (l, sub, v) => '<div class="finrow"><span class="l">' + esc(l) +
+      (sub ? ' <span style="color:var(--muted);font-size:11px">' + esc(sub) + "</span>" : "") +
+      '</span><span class="v num">' + v + "</span></div>";
+    h += fr("회비 각출", MEMBERS.length + "인", won(A.fundTotal));
+    h += fr("트레블월렛 충전", "¥" + fmt(A.chargeYen) + " · " + A.chargeCnt + "회", won(A.chargeKrw));
+    h += fr("현금 환전", "¥" + fmt(A.cashYen) + " · " + A.cashCnt + "회", won(A.cashKrw));
+    h += fr("총 지출", "¥" + fmt(A.spendYen) + " · " + A.spendCnt + "건", "− " + won(A.spendKrw));
+    h += fr("잔여 ① 미환전 원화", "", won(A.unexch));
+    h += fr("잔여 ② 월렛카드", "¥" + fmt(A.walletYen) + " · ¥100=₩900", won(A.walletKrw));
+    h += '<div class="finrow tot"><span class="l">잔여 총액 (①+②) → 전액 환급</span><span class="v num">' + won(A.total) + "</span></div>";
+
+    const cats = Object.keys(S.byCat).sort((a,b2) => S.byCat[b2] - S.byCat[a]);
+    if (cats.length){
+      const mx = S.byCat[cats[0]] || 1;
+      h += '<div class="cap" style="display:block;padding:16px 4px 4px">분류별 지출</div>';
+      cats.forEach(c => { h += '<div class="catbar"><span class="cdot" style="background:' + (CAT_COLOR[c]||"#94a3b8") + '"></span>' +
+        '<span class="cl">' + esc(c) + '</span><div class="track"><i style="width:' + Math.round(S.byCat[c]/mx*100) + "%;background:" + (CAT_COLOR[c]||"#94a3b8") + '"></i></div>' +
+        '<span class="cv num">¥' + fmt(S.byCat[c]) + "</span></div>"; });
+    }
+
+    h += '<div class="egroup" style="padding:16px 4px 2px"><span class="cap">요일별 전체 내역</span>' +
+      (lv ? '<button type="button" class="chip" data-expandall="1">모두 펼치기</button>' : "") + "</div>";
+    h += '<div id="fin-detail">';
+    if (!lv) h += '<div class="card empty2">요일별 상세는 연결된 뒤 표시됩니다 — 위 요약은 확정 리포트 기준이라 이미 정확합니다.</div>';
+    else {
+      const idTs = x => { const m = /^[a-z](\d{13})/.exec(String(x.id||"")); return m ? Number(m[1]) : 0; };
+      const asc = (a,b2) => String(a.date).localeCompare(String(b2.date)) || (idTs(a) - idTs(b2));
+      const cv = lv.convs.slice().sort(asc);
+      if (cv.length) h += finGroup("prep", "사전 준비 · 충전 · 환전",
+        cv.length + "건 · ₩" + fmt(cv.reduce((s,e) => s + (Number(e.krw)||0), 0)),
+        cv.map(e => finRow(e, lv)).join(""), false);
+      let ty = 0, tk = 0;
+      groupByDate(lv.EX).slice().reverse().forEach(g => {   // groupByDate는 최신순 — 결산은 여행 순서대로 읽는다
+        const gy = g.items.reduce((s,e) => s + (Number(e.amount)||0), 0);
+        const gk = g.items.reduce((s,e) => s + Math.round((Number(e.amount)||0) *
+          (e.paySrc === "cash" ? lv.cR : (e.paySrc === "personal" ? lv.blendR : lv.wR))), 0);
+        ty += gy; tk += gk;
+        h += finGroup(g.date, dhead(g.date) + " · " + g.items.length + "건", "¥" + fmt(gy) + " ≈ ₩" + fmt(gk),
+          g.items.slice().sort(asc).map(e => finRow(e, lv)).join(""), true);
+      });
+      h += '<div class="finrow tot"><span class="l">지출 합계 ' + lv.EX.length + '건</span><span class="v num">¥' + fmt(ty) + " ≈ ₩" + fmt(tk) + "</span></div>";
+      h += '<div class="empty2" style="padding:6px 4px 0;text-align:left;font-size:11px">행별로 반올림한 합이라 위 요약(₩' + fmt(A.spendKrw) + ")과 몇 원 차이가 납니다.</div>";
+    }
+    h += "</div>";
+
+    h += '<div class="empty2" style="padding:16px 6px 4px;text-align:left"><b>정산 기준</b><br>' +
+      (S.notes || []).map(n => "· " + esc(n)).join("<br>") + "</div>";
+    h += '<button class="ghost" type="button" data-goplan="1" style="margin:10px 0 4px;width:100%">🗺️ 여행 기록 보기 — 일정 · 맛집 · 잔액 · 예약 · 회화</button>';
+
+    expBody.innerHTML = h;
+    $("#fab").style.display = "none";   // 종료된 여행 — 결산 화면에서는 '＋ 경비 추가'를 감춘다
+  }
+  // 펼침/접힘 칩은 실제 DOM 상태로 판정하므로, 개별 그룹을 토글해도 라벨을 다시 맞춰야 한다
+  function syncExpandLabel(){
+    const chip = expBody.querySelector("[data-expandall]");
+    if (!chip) return;
+    const any = Array.prototype.some.call(expBody.querySelectorAll("#fin-detail .frows"), x => x.style.display === "none");
+    chip.textContent = any ? "모두 펼치기" : "모두 접기";
+  }
+  // 결산 탭으로 전환 — 세그 버튼이 실제로 삽입돼 있을 때만(없으면 조용히 실패하지 않고 false 반환)
+  function finalTab(){
+    const sg = $("#expseg"), b2 = sg && sg.querySelector('button[data-e="final"]');
+    if (!b2) return false;
+    expTab = "final";
+    sg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b2));
+    renderFinal();
+    return true;
   }
 
   /* 다이얼로그 */
@@ -1515,7 +1765,35 @@
   /* 인터랙션 */
   expBody.addEventListener("click", ev => {
     if (ev.target.closest("[data-rc]")) return;   // 영수증 링크는 기본 동작(새 탭)만
-    if (ev.target.closest("[data-gobal]")){ const db = document.querySelector('.dock button[data-v="bal"]'); if (db) db.click(); return; }   // 요약 스트립 → 잔액 화면
+    const goDock = v => { const b2 = document.querySelector('.dock button[data-v="' + v + '"]'); if (b2) b2.click(); };
+    if (ev.target.closest("[data-gobal]")){ goDock("bal"); return; }     // 요약 스트립 → 잔액 화면
+    if (ev.target.closest("[data-goplan]")){ goDock("plan"); return; }   // 결산 → 여행 기록(일정)
+    if (ev.target.closest("[data-gofinal]")){ finalTab(); return; }      // 중간정산 → 확정 결산
+    const meb = ev.target.closest("[data-me]");
+    if (meb){ meSet(meb.dataset.me === meGet() ? "" : meb.dataset.me); renderFinal(); return; }   // 재탭이면 선택 해제
+    if (ev.target.closest("[data-mereset]")){ meSet(""); renderFinal(); return; }
+    if (ev.target.closest("[data-expandall]")){
+      const gs = expBody.querySelectorAll("#fin-detail .frows");
+      const anyHidden = Array.prototype.some.call(gs, x => x.style.display === "none");
+      Array.prototype.forEach.call(gs, x => { x.style.display = anyHidden ? "" : "none";
+        const cap = x.previousElementSibling && x.previousElementSibling.querySelector(".num");
+        if (cap) cap.textContent = cap.textContent.replace(/\s*[▾▸]\s*$/, "") + (anyHidden ? " ▾" : " ▸"); });
+      syncExpandLabel();
+      return;
+    }
+    // 결산 상세는 읽기 전용 — .erow를 재사용하므로 이 가드가 없으면 경비 편집 다이얼로그가 열린다
+    if (ev.target.closest("#fin-detail")){
+      const gh = ev.target.closest(".fgrp > .egroup");
+      if (gh){
+        const rows = gh.nextElementSibling;
+        if (rows){ const open = rows.style.display === "none";
+          rows.style.display = open ? "" : "none";
+          const cap = gh.querySelector(".num");
+          if (cap) cap.textContent = cap.textContent.replace(/\s*[▾▸]\s*$/, "") + (open ? " ▾" : " ▸");
+          syncExpandLabel(); }   // 개별 토글로 접힌 그룹이 0이 되면 칩이 '모두 접기'로 바뀌어야 한다
+      }
+      return;
+    }
     const row = ev.target.closest(".erow");
     if (row){ const e = entries.find(x => String(x.id) === row.dataset.id); if (e) openDlg(e); }
   });
@@ -1526,8 +1804,10 @@
   $("#exp-refresh").addEventListener("click", () => { const rb = $("#exp-refresh"); rb.style.opacity = .45;
     refresh().then(() => { rb.style.opacity = 1; renderExp(); toast("새로고침됨"); }); });
   $("#fab").addEventListener("click", () => openDlg(null));
-  function expEnter(){ loadCacheE();
-    if (entries.length) renderExp();
+  function expEnter(){ loadCacheE(); loadCacheF();
+    // 결산은 확정 스냅샷만으로 완결되므로 네트워크·캐시와 무관하게 즉시 그린다(첫 화면이 빈 줄로 시작하지 않게)
+    if (expTab === "final") renderFinal();
+    else if (entries.length) renderExp();
     else expBody.innerHTML = '<div class="card empty2">불러오는 중…</div>';
     Promise.all([refresh(), fundList()]).then(() => { if (expVisible()) renderExp(); }); }   // 회비 각출도 로드(정산 반영)
 
@@ -1536,9 +1816,12 @@
   const balVisible = () => $("#v-bal").style.display !== "none";
   const CAT_COLOR = {"식비":"#f43f5e","교통":"#3b82f6","입장·관광":"#8b5cf6","회식·술":"#f59e0b","숙박":"#22c55e","기타":"#64748b"};
   let fundItems = [];
+  // 회비도 캐시 — 결산 화면이 오프라인·첫 로드에서도 즉시 그려져야 하는데 지금껏 경비(LSKEY)만 캐시됐다
+  function loadCacheF(){ try { const a = JSON.parse(localStorage.getItem(FKEY) || "[]"); fundItems = Array.isArray(a) ? a : []; } catch(e){ fundItems = []; } }
+  function saveCacheF(){ try { localStorage.setItem(FKEY, JSON.stringify(fundItems)); } catch(e){} }
   // 회비 오염 가드: fund 스키마(krw 有·name/cat/type 無)만 통과 — 구버전 서버가 fund를 경비로 폴백해도 안전
   function fundList(){ return jsonp("action=list&sheet=fund&token=" + encodeURIComponent(TOKEN)).then(d => {
-    if (d && d.ok && d.items) fundItems = d.items.filter(x => x && x.krw != null && x.name == null && x.cat == null && x.type == null); }).catch(() => {}); }
+    if (d && d.ok && d.items){ fundItems = d.items.filter(x => x && x.krw != null && x.name == null && x.cat == null && x.type == null); saveCacheF(); } }).catch(() => {}); }
   function renderBal(){
     const MS = moneyState(), EX = MS.EX;
     const spend = EX.reduce((s,e) => s + (Number(e.amount)||0), 0);   // 총지출(개인결제 포함 — 분류별·참고)
@@ -2207,6 +2490,29 @@
     if (idlg.classList.contains("open") && !iBusy) idlg.classList.remove("open");
     if (fdlg.classList.contains("open") && !fBusy) fdlg.classList.remove("open");
   });
+
+  /* ── 첫 화면 결정 ──
+     여행 종료 후에는 결산이 첫 화면이 된다(하드코딩 대신 오늘 날짜 × 일정으로 판정).
+     ★ 위치 고정: views·expTab·expBody·fundItems·sheet가 전부 정의된 뒤여야 한다.
+     위로 올리면 TDZ ReferenceError로 IIFE가 여기서 끊기고 독 전체가 무증상으로 죽는다(과거 사고 경로). */
+  try {
+    const post = !!SETTLEMENT && tripPhase(todayISO()) === "post";
+    if (post) $("#expseg").insertAdjacentHTML("afterbegin", '<button data-e="final">결산</button>');
+    // 딥링크(?v= 또는 #) — 화이트리스트를 통과한 값만 채택. 그 외에는 여행 단계로 결정
+    const raw = String((new URLSearchParams(location.search).get("v") || (location.hash || "").replace(/^#/, "") || "")).trim();
+    const asked = (raw === "settle" || raw === "final") ? (post ? "final" : "exp")
+                : ((Object.prototype.hasOwnProperty.call(views, raw) || raw === "food") ? raw : "");
+    const want = asked || (post ? "final" : "");
+    if (want && want !== "plan"){
+      if (want === "final") finalTab();
+      const btn = document.querySelector('.dock button[data-v="' + (want === "final" ? "exp" : want) + '"]');
+      if (btn){
+        sheet.classList.remove("anim");                              // 로드 직후 58vh→full 미끄러짐 차단
+        btn.click();
+        requestAnimationFrame(() => sheet.classList.add("anim"));
+      }
+    }
+  } catch(e){}
 
   // 일정 오버레이(팀 추가분) 초기 로드 — 모든 정의 후(configured 등 TDZ 회피)
   if (configured()) itineraryList().then(() => { if (curTabKey && curTabKey !== "food") select(curTabKey); });
